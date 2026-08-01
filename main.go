@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	// 農曆日期換算套件，用來取得明年農曆正月初一的國曆日期。
+	//農曆日期換算套件，用來取得明年農曆正月初一的國曆日期。
 	"github.com/6tail/lunar-go/calendar"
 	//算命
 	"github.com/bwmarrin/discordgo"
@@ -56,6 +56,10 @@ func main() {
 
 	//只監聽訊息
 	dg.Identify.Intents = discordgo.IntentsGuildMessages
+	//設定 Discord Bot 的遊玩狀態。
+	if err := dg.UpdateGameStatus(0, "你"); err != nil {
+		fmt.Println("error updating game status,", err)
+	}
 
 	//開啟連線
 	err = dg.Open()
@@ -180,7 +184,7 @@ func sendChristmasCountdown(s *discordgo.Session, channelID string) {
 	}
 
 	days := calendarDaysBetween(now, christmas)
-	reply := fmt.Sprintf("🎄 現在時間：%s\n距離 %s 耶誕節還有 %d 天，瑪麗亞凱莉正在解凍！", now.Format("2006-01-02 15:04:05"), christmas.Format("2006-01-02"), days)
+	reply := fmt.Sprintf("🎄 現在時間：%s\n距離 %s 耶誕節還有 %d 天！", now.Format("2006-01-02 15:04:05"), christmas.Format("2006-01-02"), days)
 	s.ChannelMessageSend(channelID, reply)
 }
 
@@ -191,7 +195,7 @@ func sendNextLunarNewYear(s *discordgo.Session, channelID string) {
 	lunarNewYear := calendar.NewLunarFromYmd(nextYear, 1, 1).GetSolar()
 	targetDate := time.Date(lunarNewYear.GetYear(), time.Month(lunarNewYear.GetMonth()), lunarNewYear.GetDay(), 0, 0, 0, 0, now.Location())
 	days := calendarDaysBetween(now, targetDate)
-	reply := fmt.Sprintf("🧧 現在時間：%s\n%d 年農曆正月初一是 %s，距離當天還有 %d 天，劉德華正在解凍！", now.Format("2006-01-02 15:04:05"), nextYear, targetDate.Format("2006-01-02"), days)
+	reply := fmt.Sprintf("🧧 現在時間：%s\n%d年農曆正月初一是 %s，距離當天還有 %d 天！", now.Format("2006-01-02 15:04:05"), nextYear, targetDate.Format("2006-01-02"), days)
 	s.ChannelMessageSend(channelID, reply)
 }
 
@@ -228,6 +232,7 @@ func fortuneTelling(s *discordgo.Session, channelID string) {
 		"大凶……建議你今天不要點開這份程式碼。",
 		"諸事不宜，特別是寫 Code，快去睡覺。",
 		"看來你今天會被 Bug 狠狠愛上。",
+		"今天的你，運氣不錯",
 	}
 	//隨機選一個索引
 	randomIndex := rand.Intn(len(answers))
