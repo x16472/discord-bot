@@ -189,18 +189,17 @@ chmod +x start.sh
 Debian 啟動流程如下：
 
 1. `start.sh` 自動切換至專案目錄。
-2. 驗證 `talk.txt` 是否使用半形減號分隔三個欄位。
-3. 使用 `mktemp` 在 `${TMPDIR:-/tmp}` 建立唯一的暫存執行檔。
-4. 使用 `go build` 編譯專案。
-5. 在背景啟動編譯完成的 Bot，並使用 `wait` 等待程序結束。
-6. 收到 `SIGINT` 或 `SIGTERM` 時，將停止訊號轉送給 Bot。
-7. Bot 結束後，自動刪除該次建立的暫存執行檔。
+2. 使用 `go build` 將執行檔建立於 `~/.local/state/discord-bot/`。
+3. 使用 `nohup` 在背景啟動 Bot，並將標準輸入導向 `/dev/null`。
+4. 將 Bot 的 PID 寫入 `discord-bot.pid`，輸出寫入 `discord-bot.log`。
+5. 等待一秒確認 Bot 沒有因設定錯誤立即結束。
+6. 啟動成功後立即返回命令列，Bot 不會繼續占用 SSH 終端。
 
 > 【注意】<br>
 > 不建議使用 `root` 帳號長期執行 Bot。正式運作時應建立權限受限的專用帳號，並只授予讀取專案與 `.env`、寫入必要目錄及連線網路所需的權限。
 
 > 【注意】<br>
-> `start.sh` 雖然在背景啟動 Bot 子程序，但腳本本身會留在前景等待。關閉 SSH 工作階段可能同時停止 Bot；長期執行建議使用 `systemd` 或 `tmux` 管理程序。
+> `start.sh` 使用 `nohup` 讓 Bot 脫離 SSH 終端，關閉 SSH 後仍可繼續執行。若需要開機自動啟動、失敗後自動重啟及集中管理日誌，仍建議改用 `systemd`。
 
 ### OMV 常見錯誤
 
@@ -210,24 +209,85 @@ Debian 啟動流程如下：
 | `必須使用半形減號分隔` | `talk.txt` 某一行格式錯誤 | 依錯誤行號改成 `類型-觸發文字-回覆內容` |
 | `$'\r': command not found` | `start.sh` 使用 CRLF 換行 | 將腳本轉換成 LF |
 | `go: command not found` | Go 未安裝或不在 `PATH` | 安裝 Go 並重新登入 SSH 工作階段 |
-| `permission denied` 且路徑位於 `/tmp` | `/tmp` 可能掛載為 `noexec` | 改用允許執行的 `TMPDIR`，或調整啟動檔的暫存路徑 |
+| `permission denied` 且路徑位於 `.local/state` | 執行帳號無法寫入自己的狀態目錄 | 檢查家目錄、`.local` 與其子目錄的擁有者及權限 |
 | `401 Unauthorized` | `.env` Token 錯誤、過期或已重設 | 更新 `DCToken` 後重新啟動 |
 | Bot 在線但不回覆 | Discord 權限、訊息內容設定或頻道權限不足 | 檢查 Developer Portal 與伺服器頻道權限 |
 | 回覆時間不正確 | OMV 主機時區不正確 | 使用 `timedatectl status` 檢查時區 |
-| SSH 關閉後 Bot 停止 | 程序仍附屬於 SSH 工作階段 | 改用 `systemd` 或 `tmux` |
+| SSH 關閉後 Bot 停止 | 使用到舊版啟動檔，或不是透過 `nohup` 啟動 | 同步新版 `start.sh` 後重新啟動 |
 
-如果 `/tmp` 被設定為 `noexec`，可先建立使用者自己的暫存目錄，再以 `TMPDIR` 指定：
+目前背景執行所使用的檔案預設位於：
 
-```bash
-mkdir -p "$HOME/.cache/discord-bot"
-TMPDIR="$HOME/.cache/discord-bot" bash start.sh
+```text
+~/.local/state/discord-bot/discord-bot
+~/.local/state/discord-bot/discord-bot.pid
+~/.local/state/discord-bot/discord-bot.log
 ```
 
 ### 非同步啟動與等待原則
 
-Go 語言沒有 `async` 與 `await` 關鍵字。Discord 的訊息事件由事件處理機制執行，而啟動檔採用「啟動子程序後等待完成」的方式：
+Go 語言沒有 `async` 與 `await` 關鍵字。Discord 的訊息事件由事件處理機制執行，而各平台的啟動方式如下：
 
 - Windows 使用 `start /b /wait` 啟動並等待 `go run .`。
-- Debian 使用背景程序 `&` 啟動已編譯的暫存執行檔，再以 `wait` 等待。
+- Debian 使用 `nohup` 與背景程序 `&` 啟動已編譯的執行檔，記錄 PID 後立即返回命令列。
 
-此設計可避免啟動檔在 Bot 仍執行時提早結束，並保留透過 `Ctrl+C` 或系統訊號停止程序的能力。
+Debian 背景程序不再依賴原本的 SSH 工作階段，可透過 PID 檔及日誌持續查閱與管理。
+
+### 背景程序查閱與注意事項
+
+目前 `start.sh` 建立的執行檔名稱是 `discord-bot`，可使用以下指令搜尋背景程序：
+
+```bash
+ps aux | grep discord-bot
+```
+
+`ps aux` 會列出系統程序，`grep discord-bot` 則篩選出命令列包含 `discord-bot` 的項目。主要欄位包含執行帳號、PID、CPU、記憶體、啟動時間、累計執行時間及完整指令；查閱時應確認程序的執行帳號、PID 與命令路徑是否符合預期。
+
+> 【注意】<br>
+> `grep discord-bot` 本身通常也會出現在搜尋結果中，因此只看到含有 `grep` 的那一行，不代表 Bot 正在執行。可以改用下列寫法，避免列出 `grep` 自己：
+
+```bash
+ps aux | grep '[d]iscord-bot'
+```
+
+若要精確查閱由 `start.sh` 記錄的程序，建議直接讀取 PID 檔：
+
+```bash
+ps -p "$(cat ~/.local/state/discord-bot/discord-bot.pid)" \
+  -o pid,ppid,user,stat,lstart,etime,%cpu,%mem,cmd
+```
+
+也可以使用 `pgrep` 依名稱及完整命令列查詢：
+
+```bash
+pgrep -af 'discord-bot'
+```
+
+查看即時日誌：
+
+```bash
+tail -f ~/.local/state/discord-bot/discord-bot.log
+```
+
+確認 PID 是否仍在執行：
+
+```bash
+kill -0 "$(cat ~/.local/state/discord-bot/discord-bot.pid)"
+echo $?
+```
+
+結束代碼為 `0` 代表該 PID 存在且目前帳號有權限傳送訊號；非 `0` 可能表示程序已結束、PID 檔過期，或目前帳號權限不足。
+
+正常停止 Bot：
+
+```bash
+kill "$(cat ~/.local/state/discord-bot/discord-bot.pid)"
+```
+
+> 【注意】<br>
+> 執行 `kill` 前應先使用 `ps` 核對 PID、執行帳號與命令路徑，避免 PID 檔過期後誤停止其他程序。停止後再次執行 `start.sh` 時，腳本會自動清除無效的舊 PID 檔。
+
+> 【注意】<br>
+> 不要直接使用 `kill -9` 作為一般停止方式。`SIGKILL` 不允許程式執行正常的連線關閉與清理流程，只應在一般 `kill` 無法結束程序時作為最後手段。
+
+> 【注意】<br>
+> `nohup` 只能讓程序脫離終端，無法提供開機自動啟動、異常自動重啟、日誌輪替或服務相依管理。OMV 長期正式運作仍以 `systemd` 服務較合適。
