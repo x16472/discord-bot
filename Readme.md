@@ -46,6 +46,50 @@ discord-bot/
 └── Readme.md    #專案說明
 ```
 
+## 設定方式（使用Go環境）
+
+1. 在 [Discord Developer Portal](https://discord.com/developers/applications) 建立應用程式及 Bot。
+2. 將 Bot 加入要使用的 Discord 伺服器，並授予檢視頻道、讀取訊息與傳送訊息所需權限。
+3. 在專案根目錄建立 `.env`，內容如下：
+
+```dotenv
+DCToken=你的_Discord_Bot_Token
+```
+
+請勿將 Bot Token 提交至版本控制；本專案的 `.gitignore` 已排除 `.env` 與 `.env.*`。
+
+## 各系統環境的啟動流程
+[參照該檔案](/other.md)
+
+## 安裝與執行
+
+下載相依套件：
+
+```bash
+go mod download
+```
+
+啟動機器人：
+
+```bash
+go run .
+```
+
+終端機出現以下訊息時，代表機器人已開始執行：
+
+```text
+Bot is now running.  Press CTRL-C to exit.
+```
+停止機器人可按下 `Ctrl+C`。
+
+## 建置
+
+```bash
+go build .
+```
+建置完成後會在專案目錄產生可執行檔；`.gitignore` 已排除 Windows 的 `.exe` 檔案。
+
+
 ## 對話規則維護
 
 一般文字對話已從 `messageCreate()` 移至 `talk.txt`。新增或修改對話時，不需要再修改 Go 程式碼，只要在 `talk.txt` 中維護規則即可。
@@ -80,48 +124,3 @@ contains-晚安-晚安，祝你有個好夢！
 - `九九乘法`、`算命`、`現在時間` 等功能型指令仍由 `main.go` 處理。
 
 如果規則的欄位數量錯誤、比對方式不受支援，或觸發文字及回覆內容為空白，程式會顯示錯誤並停止啟動，以便修正有問題的規則。
-
-## 設定方式
-
-1. 在 [Discord Developer Portal](https://discord.com/developers/applications) 建立應用程式及 Bot。
-2. 將 Bot 加入要使用的 Discord 伺服器，並授予檢視頻道、讀取訊息與傳送訊息所需權限。
-3. 在專案根目錄建立 `.env`，內容如下：
-
-```dotenv
-DCToken=你的_Discord_Bot_Token
-```
-
-請勿將 Bot Token 提交至版本控制；本專案的 `.gitignore` 已排除 `.env` 與 `.env.*`。
-
----
-
-## 安裝與執行（使用Go環境）
-
-下載相依套件：
-
-```bash
-go mod download
-```
-
-啟動機器人：
-
-```bash
-go run .
-```
-
-終端機出現以下訊息時，代表機器人已開始執行：
-
-```text
-Bot is now running.  Press CTRL-C to exit.
-```
-停止機器人可按下 `Ctrl+C`。
-
-#### 建置
-
-```bash
-go build .
-```
-建置完成後會在專案目錄產生可執行檔；`.gitignore` 已排除 Windows 的 `.exe` 檔案。
-
-## 各系統環境的啟動流程
-[參照該檔案](/other.md)
