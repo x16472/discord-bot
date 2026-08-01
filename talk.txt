@@ -1,17 +1,17 @@
-#格式：比對方式<Tab>觸發文字<Tab>回覆內容
+#格式：比對方式-觸發文字-回覆內容
 #exact：訊息必須與觸發文字完全相同
 #contains：訊息只要包含觸發文字即可
 #action：訊息完全相同時，呼叫第三欄指定的 Go 動態功能
-contains	笨蛋	你才笨蛋！你全家都編譯失敗！
-contains	肚子餓	餓了就去吃記憶體啊，跟我講幹嘛？
-exact	早安	早安！今天也要保持好心情。
-exact	午安    午安！記得吃午餐。
-exact	晚安	晚安，記得讓電腦和自己都休息一下。
-exact	謝謝	不客氣，很高興能幫上忙！
-exact	幫助	你可以試試看：九九乘法、算命、現在時間。
-contains	下雨	出門記得帶傘，小心別淋濕了。
-contains	好累	辛苦了，先休息一下再繼續吧！
-contains	寫程式	先把需求拆小，一步一步完成就好。
-contains	bug	別慌，先看錯誤訊息和最近的變更。
-action	瑪麗亞凱莉解凍	christmas_countdown
-action	劉德華解凍	lunar_new_year
+contains-笨蛋-你才笨蛋！你全家都編譯失敗！
+contains-肚子餓-餓了就去吃記憶體啊，跟我講幹嘛？
+exact-早安-早安！今天也要保持好心情。
+exact-午安-午安！記得吃午餐。
+exact-晚安-晚安，記得讓電腦和自己都休息一下。
+exact-謝謝-不客氣，很高興能幫上忙！
+exact-幫助-你可以試試看：九九乘法、算命、現在時間。
+contains-下雨-出門記得帶傘，小心別淋濕了。
+contains-好累-辛苦了，先休息一下再繼續吧！
+contains-寫程式-先把需求拆小，一步一步完成就好。
+contains-bug-別慌，先看錯誤訊息和最近的變更。
+action-瑪麗亞凱莉解凍-christmas_countdown
+action-劉德華解凍-lunar_new_year

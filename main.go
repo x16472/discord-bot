@@ -130,9 +130,10 @@ func loadTalkRules(fileName string) ([]talkRule, error) {
 			continue
 		}
 
-		fields := strings.SplitN(line, "\t", 3)
+		// 每筆規則只使用前兩個半形減號切割，回覆內容可繼續包含減號。
+		fields := strings.SplitN(line, "-", 3)
 		if len(fields) != 3 {
-			return nil, fmt.Errorf("%s line %d must contain match type, trigger and reply separated by tabs", fileName, lineNumber)
+			return nil, fmt.Errorf("%s line %d must contain match type, trigger and reply separated by hyphens", fileName, lineNumber)
 		}
 
 		rule := talkRule{
