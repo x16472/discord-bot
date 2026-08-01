@@ -15,6 +15,7 @@ import (
 	//算命
 	"github.com/bwmarrin/discordgo"
 	_ "github.com/joho/godotenv/autoload"
+	//引述Github套件 go-cwb/cwb，提供中央氣象局的天氣資料。
 )
 
 const (
@@ -41,7 +42,6 @@ func main() {
 		fmt.Println("error loading talk rules,", err)
 		return
 	}
-
 	token := os.Getenv("DCToken")
 
 	//creates a new Discord session
@@ -153,14 +153,11 @@ func loadTalkRules(fileName string) ([]talkRule, error) {
 			//啟動時先驗證動態功能名稱，避免輸入指令後沒有任何回覆。
 			return nil, fmt.Errorf("%s line %d has unsupported action %q", fileName, lineNumber, rule.reply)
 		}
-
 		rules = append(rules, rule)
 	}
-
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-
 	return rules, nil
 }
 
