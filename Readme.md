@@ -15,6 +15,9 @@ Golang版本
 - Go 1.19
 - [discordgo](https://github.com/bwmarrin/discordgo) v0.26.1
 - [godotenv](https://github.com/joho/godotenv) v1.4.0
+- [lunar-go](https://github.com/6tail/lunar-go) v1.4.6：農曆與國曆日期換算
+- [go-cwb](https://github.com/minchao/go-cwb)：串接中央氣象署開放資料 API
+
 
 ## 專案架構
 ```text
