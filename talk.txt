@@ -15,3 +15,4 @@ contains-寫程式-先把需求拆小，一步一步完成就好。
 contains-bug-別慌，先看錯誤訊息和最近的變更。
 action-瑪麗亞凱莉解凍-christmas_countdown
 action-劉德華解凍-lunar_new_year
+action-36小時天氣-weather_36h

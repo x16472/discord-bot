@@ -12,19 +12,21 @@ import (
 
 	//農曆日期換算套件，用來取得明年農曆正月初一的國曆日期。
 	"github.com/6tail/lunar-go/calendar"
+
 	//算命
 	"github.com/bwmarrin/discordgo"
 	_ "github.com/joho/godotenv/autoload"
-	//引述Github套件 go-cwb/cwb，提供中央氣象局的天氣資料。
 )
 
 const (
 	maxNum1  = 10
 	maxNum2  = 10
 	talkFile = "talk.txt"
-	// 動態功能識別名稱必須與 talk.txt 的 action 第三欄一致。
+	//動態功能識別名稱必須與 talk.txt 的 action 第三欄一致。
 	christmasCountdownAction = "christmas_countdown"
 	lunarNewYearAction       = "lunar_new_year"
+	rainProbabilityAction    = "rain_probability"
+	weather36HourAction      = "weather_36h"
 )
 
 type talkRule struct {
@@ -150,7 +152,7 @@ func loadTalkRules(fileName string) ([]talkRule, error) {
 			return nil, fmt.Errorf("%s line %d has an empty trigger or reply", fileName, lineNumber)
 		}
 
-		if rule.matchType == "action" && rule.reply != christmasCountdownAction && rule.reply != lunarNewYearAction {
+		if rule.matchType == "action" && rule.reply != christmasCountdownAction && rule.reply != lunarNewYearAction && rule.reply != weather36HourAction {
 			//啟動時先驗證動態功能名稱，避免輸入指令後沒有任何回覆。
 			return nil, fmt.Errorf("%s line %d has unsupported action %q", fileName, lineNumber, rule.reply)
 		}
@@ -169,6 +171,8 @@ func executeTalkAction(s *discordgo.Session, channelID string, action string) {
 		sendChristmasCountdown(s, channelID)
 	case lunarNewYearAction:
 		sendNextLunarNewYear(s, channelID)
+	case weather36HourAction:
+		send36HourWeather(s, channelID)
 	}
 }
 
