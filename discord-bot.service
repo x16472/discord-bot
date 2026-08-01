@@ -1,0 +1,24 @@
+[Unit]
+Description=Discord Bot written in Go
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/discord-bot
+ExecStart=/usr/bin/env bash /root/discord-bot/start.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillSignal=SIGTERM
+StateDirectory=discord-bot
+StateDirectoryMode=0700
+Environment=DISCORD_BOT_STATE_DIR=/var/lib/discord-bot
+Environment=PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+
+#systemd 接管標準輸出與錯誤，統一透過 journalctl 查閱。
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
