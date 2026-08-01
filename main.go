@@ -23,10 +23,10 @@ const (
 	maxNum2  = 10
 	talkFile = "talk.txt"
 	//動態功能識別名稱必須與 talk.txt 的 action 第三欄一致。
-	christmasCountdownAction = "christmas_countdown"
-	lunarNewYearAction       = "lunar_new_year"
-	rainProbabilityAction    = "rain_probability"
-	weather36HourAction      = "weather_36h"
+	christmasCountdownAction  = "christmas_countdown"
+	lunarNewYearAction        = "lunar_new_year"
+	rainProbabilityActionName = "rainProbability_action"
+	weather36HourAction       = "weather_36h"
 )
 
 type talkRule struct {
@@ -38,6 +38,9 @@ type talkRule struct {
 var talkRules []talkRule
 
 func main() {
+	// 以啟動時間初始化算命與降雨口語字庫的隨機選句。
+	rand.Seed(time.Now().UnixNano())
+
 	var err error
 	talkRules, err = loadTalkRules(talkFile)
 	if err != nil {
@@ -132,7 +135,7 @@ func loadTalkRules(fileName string) ([]talkRule, error) {
 			continue
 		}
 
-		// 每筆規則只使用前兩個半形減號切割，回覆內容可繼續包含減號。
+		//每筆規則只使用前兩個半形減號切割，回覆內容可繼續包含減號。
 		fields := strings.SplitN(line, "-", 3)
 		if len(fields) != 3 {
 			return nil, fmt.Errorf("%s line %d must contain match type, trigger and reply separated by hyphens", fileName, lineNumber)
@@ -152,7 +155,7 @@ func loadTalkRules(fileName string) ([]talkRule, error) {
 			return nil, fmt.Errorf("%s line %d has an empty trigger or reply", fileName, lineNumber)
 		}
 
-		if rule.matchType == "action" && rule.reply != christmasCountdownAction && rule.reply != lunarNewYearAction && rule.reply != weather36HourAction {
+		if rule.matchType == "action" && rule.reply != christmasCountdownAction && rule.reply != lunarNewYearAction && rule.reply != weather36HourAction && rule.reply != rainProbabilityActionName {
 			//啟動時先驗證動態功能名稱，避免輸入指令後沒有任何回覆。
 			return nil, fmt.Errorf("%s line %d has unsupported action %q", fileName, lineNumber, rule.reply)
 		}
@@ -173,6 +176,8 @@ func executeTalkAction(s *discordgo.Session, channelID string, action string) {
 		sendNextLunarNewYear(s, channelID)
 	case weather36HourAction:
 		send36HourWeather(s, channelID)
+	case rainProbabilityActionName:
+		rainProbabilityAction(s, channelID)
 	}
 }
 
