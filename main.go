@@ -40,7 +40,6 @@ var talkRules []talkRule
 func main() {
 	// 以啟動時間初始化算命與降雨口語字庫的隨機選句。
 	rand.Seed(time.Now().UnixNano())
-
 	var err error
 	talkRules, err = loadTalkRules(talkFile)
 	if err != nil {
@@ -61,16 +60,17 @@ func main() {
 
 	//只監聽訊息
 	dg.Identify.Intents = discordgo.IntentsGuildMessages
-	//設定 Discord Bot 的遊玩狀態。
-	if err := dg.UpdateGameStatus(0, "你"); err != nil {
-		fmt.Println("error updating game status,", err)
-	}
 
 	//開啟連線
 	err = dg.Open()
 	if err != nil {
 		fmt.Println("error opening connection,", err)
 		return
+	}
+
+	//WebSocket 連線完成後，設定 Discord Bot 的遊戲動態資訊。
+	if err := updateBotGameStatus(dg); err != nil {
+		fmt.Println("error updating game status,", err)
 	}
 
 	//Wait here until CTRL-C or other term signal is received.
@@ -82,6 +82,26 @@ func main() {
 	//Cleanly close down the Discord session.
 	dg.Close()
 }
+
+// updateBotGameStatus 將 Bot 顯示為正在遊玩
+func updateBotGameStatus(s *discordgo.Session) error {
+	return s.UpdateStatusComplex(discordgo.UpdateStatusData{
+		Status: "online",
+		AFK:    false,
+		Activities: []*discordgo.Activity{
+			{
+				Name:    "Enjoying Golang",
+				Type:    discordgo.ActivityTypeStreaming,
+				Details: "正在探索Golang",
+				State:   "正在Golang中撰寫 Discord Bot",
+				Timestamps: discordgo.TimeStamps{
+					StartTimestamp: time.Now().UnixMilli(),
+				},
+			},
+		},
+	})
+}
+
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	//Ignore all messages created by the bot itself
 	//This isn't required in this specific example but it's a good practice.
