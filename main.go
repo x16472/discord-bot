@@ -40,7 +40,7 @@ var talkRules []talkRule
 
 func main() {
 	// 以啟動時間初始化算命與降雨口語字庫的隨機選句。
-	rand.Seed(time.Now().UnixNano())
+	// rand.Seed(time.Now().UnixNano()) 在1.20版本顯得多餘了
 	var err error
 	talkRules, err = loadTalkRules(talkFile)
 	if err != nil {
