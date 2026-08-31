@@ -92,7 +92,7 @@ func updateBotGameStatus(s *discordgo.Session) error {
 		Activities: []*discordgo.Activity{
 			{
 				Name:    "Enjoying Golang",
-				Type:    discordgo.ActivityTypeCompeting,
+				Type:    discordgo.ActivityTypeListening,
 				Details: "正在探索Golang",
 				State:   "正在Golang中撰寫 Discord Bot",
 				Timestamps: discordgo.TimeStamps{
@@ -270,7 +270,7 @@ func fortuneTelling(s *discordgo.Session, channelID string) {
 func getLocalTime(s *discordgo.Session, channelID string) {
 	//取得當前時間
 	now := time.Now()
-	timeString := now.Format("2006-01-02 15:04:05")
+	timeString := now.Format("2006/01/02 15:04:05")
 	reply := fmt.Sprintf("⏰現在的時間是：%s", timeString)
 	s.ChannelMessageSend(channelID, reply)
 }

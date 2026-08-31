@@ -15,7 +15,9 @@ import (
 	"github.com/minchao/go-cwb/cwb"
 )
 
-const defaultWeatherLocation = "臺北市"
+const (
+	defaultWeatherLocation = "桃園市"
+)
 
 // weatherPeriod 保存同一預報時段的天氣、降雨、溫度與舒適度。
 type weatherPeriod struct {

@@ -277,7 +277,7 @@ shellcheck start.sh
 
 ### 第一階段：先讓版本描述一致
 
-- Phoenix 決定是否以目前工作樹重新實作 `/天氣` 與新版 `start.sh`。（）
+- Phoenix 決定是否以目前工作樹重新實作 `/天氣` 與新版 `start.sh`。
 - 完成後立即執行 Go 與 Bash 驗證。
 - 根據實際結果更新 README、`other.md` 與 History，不提前宣告完成。
 
