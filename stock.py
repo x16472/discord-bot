@@ -216,7 +216,7 @@ def build_market_message(index_records, average_records):
                 f"高於月均價：{above_average:,}｜"
                 f"低於月均價：{below_average:,}｜持平：{equal_average:,}"
             ),
-            "資料來源：臺灣證券交易所 OpenAPI",
+            "-# 資料來源：臺灣證券交易所 OpenAPI\t[資料來源](https://openapi.twse.com.tw/)",
         )
     )
 
@@ -347,7 +347,8 @@ def fetch_stock_history(stock_number, month_count, minimum_records):
         # 取得並解析該月個股行情；月初尚無交易資料時繼續往前找。
         try:
             csv_text = fetch_stock_month_csv(stock_number, year, month)
-            parsed_name, month_records = parse_stock_csv(csv_text, stock_number)
+            csv_records = parse_stock_csv(csv_text, stock_number)
+            parsed_name, month_records = csv_records
         except ValueError:
             continue
         # 使用證交所標題提供的公司名稱。
@@ -371,7 +372,7 @@ def fetch_stock_history(stock_number, month_count, minimum_records):
 # build_stock_price_message 產生附圖格式的個股行情訊息。
 def build_stock_price_message(stock_number, stock_name, record):
     # 組合可由 main.go 直接送出的 Discord 個股訊息。
-    return "\n".join(
+    return "\r\n".join(
         (
             f"📈 名稱：{stock_number}（{stock_name}）",
             f"📈 {stock_number} 個股行情（{record['date']}）",
@@ -385,7 +386,7 @@ def build_stock_price_message(stock_number, stock_name, record):
                 f"最低：{format_decimal(record['low'])}"
             ),
             (f"成交股數：{record['volume']:,}｜成交筆數：{record['transactions']:,}"),
-            "資料來源：臺灣證券交易所",
+            "-# 資料來源：臺灣證券交易所",
         )
     )
 
@@ -398,7 +399,7 @@ def average_closing_price(records, period):
     # 取最後 period 個交易日的收盤價。
     recent_prices = [record["close"] for record in records[-period:]]
     # 使用 Decimal 計算精確平均。
-    return sum(recent_prices, Decimal("0")) / Decimal(period)
+    return sum(recent_prices, Decimal(0)) / Decimal(period)
 
 
 # build_stock_suggestion_message 依近期均線產生中性的趨勢觀察。
@@ -429,7 +430,7 @@ def build_stock_suggestion_message(stock_number, stock_name, records):
             ),
             f"觀察：{observation}",
             "以上僅依證交所歷史行情計算，不構成投資建議。",
-            "資料來源：臺灣證券交易所",
+            "-# 資料來源：臺灣證券交易所",
         )
     )
 
@@ -486,7 +487,7 @@ def main():
         "price",
         "suggestion",
     ) and not STOCK_NUMBER_PATTERN.fullmatch(stock_number):
-        output_json(error="股票代號格式不正確，請使用四至六碼英數字。")
+        output_json(error="-# 股票代號格式不正確，請使用四至六碼英數字。")
         return 1
 
     # 每次程序只查詢使用者本次要求的資料。

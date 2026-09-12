@@ -143,7 +143,7 @@ func send36HourWeather(s *discordgo.Session, channelID string) {
 			fallbackWeatherValue(period.comfort),
 		)
 	}
-	reply.WriteString("\n資料來源：中央氣象署 F-C0032-001")
+	reply.WriteString("\r\n資料來源：中央氣象署 F-C0032-001")
 	s.ChannelMessageSend(channelID, reply.String())
 }
 
@@ -195,7 +195,7 @@ func rainProbabilityAction(s *discordgo.Session, channelID string) {
 			formatRainProbability(period.rainProbability),
 		)
 	}
-	reply.WriteString("\n\n資料來源：中央氣象署 F-C0032-001")
+	reply.WriteString("\r\n資料來源：中央氣象署 F-C0032-001")
 	s.ChannelMessageSend(channelID, reply.String())
 }
 
