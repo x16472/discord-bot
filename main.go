@@ -90,7 +90,7 @@ func updateBotGameStatus(s *discordgo.Session) error {
 		Activities: []*discordgo.Activity{
 			{
 				Name:    "Enjoying Golang",
-				Type:    discordgo.ActivityTypeListening,
+				Type:    discordgo.ActivityTypeStreaming,
 				Details: "正在探索Golang",
 				State:   "正在Golang中撰寫 Discord Bot",
 				Timestamps: discordgo.TimeStamps{
@@ -139,14 +139,16 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-// executeStockEvent 依 messageCreate 解析出的事件執行 stock.go 股票功能。
+// executeStockEvent 將 messageCreate 解析出的股票事件交給 stock.go 轉發。
 func executeStockEvent(s *discordgo.Session, channelID string, command stockCommand) {
-	switch command.action {
-	case stockPriceActionName:
-		stockPriceAction(s, channelID, command.stockNumber)
-	case stockSuggestionActionName:
-		stockSuggestionAction(s, channelID, command.stockNumber)
+	// stock.py 已完成資料查詢、分析與文字格式化，main.go 只負責 Discord 回覆。
+	reply, err := getStockReply(command.action, command.stockNumber)
+	if err != nil {
+		s.ChannelMessageSend(channelID, fmt.Sprintf("目前無法取得股票資料：%v", err))
+		return
 	}
+	// 將 Python 產生的完整訊息送到原始 Discord 頻道。
+	s.ChannelMessageSend(channelID, reply)
 }
 
 func loadTalkRules(fileName string) ([]talkRule, error) {
@@ -214,11 +216,11 @@ func executeTalkAction(s *discordgo.Session, channelID string, action string) {
 	case rainProbabilityActionName:
 		rainProbabilityAction(s, channelID)
 	case dailyMarketActionName:
-		dailyMarketAction(s, channelID)
+		executeStockEvent(s, channelID, stockCommand{action: dailyMarketActionName})
 	case stockPriceActionName:
-		stockPriceAction(s, channelID, defaultStockNumber)
+		executeStockEvent(s, channelID, stockCommand{action: stockPriceActionName, stockNumber: defaultStockNumber})
 	case stockSuggestionActionName:
-		stockSuggestionAction(s, channelID, defaultStockNumber)
+		executeStockEvent(s, channelID, stockCommand{action: stockSuggestionActionName, stockNumber: defaultStockNumber})
 	}
 }
 

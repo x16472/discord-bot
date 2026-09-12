@@ -3,390 +3,175 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/bwmarrin/discordgo"
 )
 
 const (
-	//defaultStockNumber 是未指定股票代號時使用的範例股票。
+	// defaultStockNumber 是 talk.txt 未指定股票代號時使用的示範代號。
 	defaultStockNumber = "2377"
-	//defaultStockScript 是 Go 每次查詢時執行的 Python 程式。
+	// defaultStockScript 是事件發生時才執行的 Python 股票查詢程式。
 	defaultStockScript = "stock.py"
+	// stockQueryTimeout 限制單次股票事件占用背景工作的時間。
+	stockQueryTimeout = 40 * time.Second
 )
 
 var (
-	//stockPriceCommandPattern 支援「2377股價」格式的個股行情指令。
+	// stockPriceCommandPattern 辨識「2377股價」形式的個股行情指令。
 	stockPriceCommandPattern = regexp.MustCompile(`^([0-9]{4,6}[A-Za-z]?)股價$`)
-	//stockSuggestionCommandPattern 支援「2377股票建議」格式的個股分析指令。
+	// stockSuggestionCommandPattern 辨識「2377股票建議」形式的分析指令。
 	stockSuggestionCommandPattern = regexp.MustCompile(`^([0-9]{4,6}[A-Za-z]?)股票建議$`)
 )
 
-// stockResponse 接收 Python 子程序以 JSON 回傳的證交所 CSV 與錯誤資訊。
-type stockResponse struct {
-	Date           string `json:"date"`
-	AllMarketRaw   string `json:"all_market_raw"`
-	SingleStockRaw string `json:"single_stock_raw"`
-	Error          string `json:"error"`
-}
-
-// stockDailyRecord 保存證交所個股日成交資訊。
-type stockDailyRecord struct {
-	date          string
-	tradeVolume   string
-	openingPrice  float64
-	highestPrice  float64
-	lowestPrice   float64
-	closingPrice  float64
-	priceChange   float64
-	transactionNo string
-}
-
-// stockCommand 保存 messageCreate 從 Discord 訊息解析出的股票事件內容。
+// stockCommand 保存 main.go 執行股票事件所需的最少資訊。
 type stockCommand struct {
 	action       string
 	stockNumber  string
 	errorMessage string
 }
 
-// parseStockCommand 辨識帶有股票代號的動態指令，但不在解析階段執行 Python。
+// stockResponse 對應 stock.py 回傳的精簡 JSON 格式。
+type stockResponse struct {
+	Message string `json:"message"`
+	Error   string `json:"error"`
+}
+
+// pythonCommand 保存 Python 執行檔與可能需要的啟動參數。
+type pythonCommand struct {
+	path string
+	args []string
+}
+
+// parseStockCommand 將 Discord 訊息轉成可由事件處理器執行的股票命令。
 func parseStockCommand(content string) (stockCommand, bool) {
-	command := strings.TrimSpace(content)
-	//不攔截 talk.txt 的無代號「股票建議」action，讓統一分派流程使用預設代號。
-	if command == "股票建議" {
-		return stockCommand{}, false
+	// 移除使用者輸入前後空白，並統一英文字母大小寫。
+	message := strings.ToUpper(strings.TrimSpace(content))
+	// 優先辨識個股行情指令。
+	if matches := stockPriceCommandPattern.FindStringSubmatch(message); len(matches) == 2 {
+		return stockCommand{action: stockPriceActionName, stockNumber: matches[1]}, true
 	}
-	if matches := stockPriceCommandPattern.FindStringSubmatch(command); len(matches) == 2 {
+	// 接著辨識股票建議指令。
+	if matches := stockSuggestionCommandPattern.FindStringSubmatch(message); len(matches) == 2 {
+		return stockCommand{action: stockSuggestionActionName, stockNumber: matches[1]}, true
+	}
+	// 包含指令關鍵字但格式錯誤時，回傳可直接顯示的操作提示。
+	if strings.HasSuffix(message, "股價") || strings.HasSuffix(message, "股票建議") {
 		return stockCommand{
-			action:      stockPriceActionName,
-			stockNumber: strings.ToUpper(matches[1]),
+			errorMessage: "股票代號格式不正確，請輸入四至六碼英數字，例如：2377股價。",
 		}, true
 	}
-	if matches := stockSuggestionCommandPattern.FindStringSubmatch(command); len(matches) == 2 {
-		return stockCommand{
-			action:      stockSuggestionActionName,
-			stockNumber: strings.ToUpper(matches[1]),
-		}, true
-	}
-	if strings.HasSuffix(command, "股價") || strings.HasSuffix(command, "股票建議") {
-		return stockCommand{
-			errorMessage: "股票代號格式不正確，請輸入例如「2377股價」或「2377股票建議」。",
-		}, true
-	}
+	// 其餘訊息交回 main.go 的一般 talk 規則處理。
 	return stockCommand{}, false
 }
 
-// getStockData 在每次收到指令時啟動 Python 子程序，不使用連接埠或常駐服務。
-func getStockData(ctx context.Context, queryType string, stockNumber string) (*stockResponse, error) {
-	pythonCommand, pythonArguments, err := resolvePythonCommand()
-	if err != nil {
-		return nil, err
+// getStockReply 將 main.go 的股票事件轉成 Python 查詢並取得可直接發送的訊息。
+func getStockReply(action string, stockNumber string) (string, error) {
+	// 將 Go action 名稱映射成 stock.py 接受的查詢類型。
+	queryType := ""
+	// 只允許已註冊的三種股票事件進入 Python。
+	switch action {
+	case dailyMarketActionName:
+		queryType = "market"
+	case stockPriceActionName:
+		queryType = "price"
+	case stockSuggestionActionName:
+		queryType = "suggestion"
+	default:
+		return "", fmt.Errorf("不支援的股票功能：%s", action)
 	}
 
+	// 每次 Discord 事件建立獨立逾時，不常駐 Python 服務或預存行情。
+	ctx, cancel := context.WithTimeout(context.Background(), stockQueryTimeout)
+	defer cancel()
+
+	// 執行一次 Python 程式並解析其精簡 JSON 回應。
+	response, err := runStockPython(ctx, queryType, stockNumber)
+	if err != nil {
+		return "", err
+	}
+	// 防止 Python 成功結束但沒有提供 Discord 回覆內容。
+	if strings.TrimSpace(response.Message) == "" {
+		return "", fmt.Errorf("股票資料程式未回傳訊息")
+	}
+	// 回傳已由 Python 完成格式化的繁體中文訊息。
+	return response.Message, nil
+}
+
+// runStockPython 啟動一次 stock.py，完成後立即結束子程序。
+func runStockPython(ctx context.Context, queryType string, stockNumber string) (stockResponse, error) {
+	// 尋找目前環境可用的 Python 命令。
+	python, err := resolvePythonCommand()
+	if err != nil {
+		return stockResponse{}, err
+	}
+	// 允許以環境變數指定腳本位置，同時保留專案根目錄預設值。
 	stockScript := strings.TrimSpace(os.Getenv("STOCK_PYTHON_SCRIPT"))
 	if stockScript == "" {
 		stockScript = defaultStockScript
 	}
-	arguments := append(pythonArguments, stockScript, queryType)
-	if stockNumber != "" {
-		arguments = append(arguments, stockNumber)
+	// 組合 Python 啟動參數；大盤查詢不需要股票代號。
+	arguments := append(append([]string{}, python.args...), stockScript, queryType)
+	if strings.TrimSpace(stockNumber) != "" {
+		arguments = append(arguments, strings.ToUpper(strings.TrimSpace(stockNumber)))
 	}
-
-	command := exec.CommandContext(ctx, pythonCommand, arguments...)
+	// 將本次查詢交給獨立 Python 子程序。
+	command := exec.CommandContext(ctx, python.path, arguments...)
+	// 分別保存標準輸出與錯誤輸出，避免錯誤文字破壞 JSON。
+	var standardOutput bytes.Buffer
 	var standardError bytes.Buffer
+	command.Stdout = &standardOutput
 	command.Stderr = &standardError
-	standardOutput, commandErr := command.Output()
-	if ctx.Err() != nil {
-		return nil, fmt.Errorf("Python 股票查詢逾時：%w", ctx.Err())
+	// 等待一次性查詢完成。
+	runError := command.Run()
+	// 逾時時回傳明確訊息。
+	if ctx.Err() == context.DeadlineExceeded {
+		return stockResponse{}, fmt.Errorf("股票資料查詢逾時")
 	}
 
-	response := &stockResponse{}
-	decodeErr := json.Unmarshal(standardOutput, response)
-	if decodeErr != nil {
-		if commandErr != nil {
-			return nil, fmt.Errorf("Python 股票查詢失敗：%v；%s", commandErr, strings.TrimSpace(standardError.String()))
+	// Python 無論查詢成功或失敗都應回傳固定 JSON。
+	var response stockResponse
+	if err := json.Unmarshal(standardOutput.Bytes(), &response); err != nil {
+		if runError != nil {
+			return stockResponse{}, fmt.Errorf("股票資料程式執行失敗：%s", strings.TrimSpace(standardError.String()))
 		}
-		return nil, fmt.Errorf("Python 回傳的 JSON 格式錯誤：%w", decodeErr)
+		return stockResponse{}, fmt.Errorf("股票資料回應格式錯誤：%w", err)
 	}
-	if response.Error != "" {
-		return nil, fmt.Errorf("%s", response.Error)
+	// 優先使用 Python 提供的可讀錯誤原因。
+	if strings.TrimSpace(response.Error) != "" {
+		return stockResponse{}, fmt.Errorf("%s", response.Error)
 	}
-	if commandErr != nil {
-		return nil, fmt.Errorf("Python 股票查詢失敗：%v；%s", commandErr, strings.TrimSpace(standardError.String()))
+	// JSON 沒有錯誤內容但子程序失敗時，保留 stderr 供除錯。
+	if runError != nil {
+		return stockResponse{}, fmt.Errorf("股票資料程式執行失敗：%s", strings.TrimSpace(standardError.String()))
 	}
+	// 回傳 Python 已整理完成的訊息。
 	return response, nil
 }
 
-// resolvePythonCommand 依環境變數與作業系統尋找可執行的 Python。
-func resolvePythonCommand() (string, []string, error) {
-	if configuredCommand := strings.TrimSpace(os.Getenv("PYTHON_BIN")); configuredCommand != "" {
-		path, err := exec.LookPath(configuredCommand)
-		if err != nil {
-			return "", nil, fmt.Errorf("找不到 PYTHON_BIN 指定的 Python：%w", err)
-		}
-		return path, nil, nil
+// resolvePythonCommand 依作業系統尋找可用的 Python 3 命令。
+func resolvePythonCommand() (pythonCommand, error) {
+	// PYTHON_BIN 可讓部署環境明確指定 Python 執行檔。
+	if configuredPath := strings.TrimSpace(os.Getenv("PYTHON_BIN")); configuredPath != "" {
+		return pythonCommand{path: configuredPath}, nil
 	}
-
-	type pythonCandidate struct {
-		command   string
-		arguments []string
-	}
-	candidates := []pythonCandidate{{command: "python3"}, {command: "python"}}
+	// Windows 同時支援 python、python3 與 py -3 啟動方式。
+	candidates := []pythonCommand{{path: "python3"}, {path: "python"}}
 	if runtime.GOOS == "windows" {
-		candidates = []pythonCandidate{{command: "python"}, {command: "python3"}, {command: "py", arguments: []string{"-3"}}}
+		candidates = []pythonCommand{{path: "python"}, {path: "python3"}, {path: "py", args: []string{"-3"}}}
 	}
+	// 依序確認命令是否存在於 PATH。
 	for _, candidate := range candidates {
-		path, err := exec.LookPath(candidate.command)
-		if err == nil {
-			return path, candidate.arguments, nil
+		if path, err := exec.LookPath(candidate.path); err == nil {
+			candidate.path = path
+			return candidate, nil
 		}
 	}
-	return "", nil, fmt.Errorf("找不到 Python，請安裝 Python 3 或設定 PYTHON_BIN")
-}
-
-// stockPriceAction 即時取得個股當月資料，並顯示最新一個交易日行情。
-func stockPriceAction(s *discordgo.Session, channelID string, stockNumber string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	response, err := getStockData(ctx, "stock", stockNumber)
-	if err != nil {
-		s.ChannelMessageSend(channelID, fmt.Sprintf("目前無法取得 %s 股價：%v", stockNumber, err))
-		return
-	}
-	reply, err := formatStockPriceReply(stockNumber, response.SingleStockRaw)
-	if err != nil {
-		s.ChannelMessageSend(channelID, fmt.Sprintf("目前無法解析 %s 的證交所資料：%v", stockNumber, err))
-		return
-	}
-	s.ChannelMessageSend(channelID, reply)
-}
-
-// formatStockPriceReply 將證交所個股 CSV 整理為附圖使用的 Discord 訊息格式。
-func formatStockPriceReply(stockNumber string, rawCSV string) (string, error) {
-	records, err := parseStockDailyRecords(rawCSV)
-	if err != nil {
-		return "", err
-	}
-
-	stockName := extractStockName(rawCSV, stockNumber)
-	displayName := stockNumber
-	if stockName != "" {
-		displayName = fmt.Sprintf("%s（%s）", stockNumber, stockName)
-	}
-
-	latest := records[len(records)-1]
-	reply := fmt.Sprintf(
-		"📈 名稱：%s\r\n 📈 %s 個股行情（%s）\r\n收盤：%.2f 元｜漲跌：%+.2f 元\r\n開盤：%.2f｜最高：%.2f｜最低：%.2f\r\n成交股數：%s｜成交筆數：%s\r\n資料來源：臺灣證券交易所",
-		displayName,
-		stockNumber,
-		latest.date,
-		latest.closingPrice,
-		latest.priceChange,
-		latest.openingPrice,
-		latest.highestPrice,
-		latest.lowestPrice,
-		latest.tradeVolume,
-		latest.transactionNo,
-	)
-	return reply, nil
-}
-
-// extractStockName 從證交所 STOCK_DAY CSV 標題擷取指定股票的名稱。
-func extractStockName(rawCSV string, stockNumber string) string {
-	reader := csv.NewReader(strings.NewReader(strings.TrimPrefix(rawCSV, "\ufeff")))
-	reader.FieldsPerRecord = -1
-	rows, err := reader.ReadAll()
-	if err != nil {
-		return ""
-	}
-	for _, row := range rows {
-		for _, field := range row {
-			parts := strings.Fields(strings.TrimSpace(field))
-			for index, part := range parts {
-				if part == stockNumber && index+1 < len(parts) {
-					return strings.Trim(parts[index+1], "\"()（）")
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// dailyMarketAction 即時取得證交所單日大盤資料並整理主要市場指標。
-func dailyMarketAction(s *discordgo.Session, channelID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	response, err := getStockData(ctx, "market", "")
-	if err != nil {
-		s.ChannelMessageSend(channelID, fmt.Sprintf("目前無法取得單日大盤資訊：%v", err))
-		return
-	}
-	reply, err := formatDailyMarket(response.Date, response.AllMarketRaw)
-	if err != nil {
-		s.ChannelMessageSend(channelID, fmt.Sprintf("目前無法解析證交所大盤資料：%v", err))
-		return
-	}
-	s.ChannelMessageSend(channelID, reply)
-}
-
-// stockSuggestionAction 以證交所近期收盤價計算均線趨勢並產生規則式建議。
-func stockSuggestionAction(s *discordgo.Session, channelID string, stockNumber string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	response, err := getStockData(ctx, "stock", stockNumber)
-	if err != nil {
-		s.ChannelMessageSend(channelID, fmt.Sprintf("目前無法取得 %s 的分析資料：%v", stockNumber, err))
-		return
-	}
-	records, err := parseStockDailyRecords(response.SingleStockRaw)
-	if err != nil {
-		s.ChannelMessageSend(channelID, fmt.Sprintf("目前無法解析 %s 的證交所資料：%v", stockNumber, err))
-		return
-	}
-
-	latest := records[len(records)-1]
-	shortDays := min(5, len(records))
-	longDays := min(20, len(records))
-	shortAverage := averageClosingPrice(records[len(records)-shortDays:])
-	longAverage := averageClosingPrice(records[len(records)-longDays:])
-	suggestion := buildStockSuggestion(latest.closingPrice, shortAverage, longAverage)
-	reply := fmt.Sprintf(
-		"🧭 %s 股票建議（%s）\n最新收盤：%.2f 元\n%d 日均價：%.2f 元｜%d 日均價：%.2f 元\n判讀：%s\n\n這是依證交所歷史價格產生的規則式觀察，不構成投資建議。",
-		stockNumber,
-		latest.date,
-		latest.closingPrice,
-		shortDays,
-		shortAverage,
-		longDays,
-		longAverage,
-		suggestion,
-	)
-	s.ChannelMessageSend(channelID, reply)
-}
-
-// parseStockDailyRecords 將證交所 STOCK_DAY CSV 解析為依日期排列的每日資料。
-func parseStockDailyRecords(rawCSV string) ([]stockDailyRecord, error) {
-	if strings.TrimSpace(rawCSV) == "" || strings.Contains(rawCSV, "Error fetching") || strings.Contains(rawCSV, "Network Error") {
-		return nil, fmt.Errorf("Python 服務未傳回可用的個股行情")
-	}
-
-	reader := csv.NewReader(strings.NewReader(strings.TrimPrefix(rawCSV, "\ufeff")))
-	reader.FieldsPerRecord = -1
-	records, err := reader.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("CSV 格式錯誤：%w", err)
-	}
-
-	parsed := make([]stockDailyRecord, 0)
-	for _, row := range records {
-		if len(row) < 9 || strings.TrimSpace(row[0]) == "日期" {
-			continue
-		}
-		openingPrice, openingErr := parseTWSEFloat(row[3])
-		highestPrice, highestErr := parseTWSEFloat(row[4])
-		lowestPrice, lowestErr := parseTWSEFloat(row[5])
-		closingPrice, closingErr := parseTWSEFloat(row[6])
-		priceChange, changeErr := parseTWSEFloat(strings.TrimPrefix(strings.TrimSpace(row[7]), "X"))
-		if openingErr != nil || highestErr != nil || lowestErr != nil || closingErr != nil || changeErr != nil {
-			continue
-		}
-		parsed = append(parsed, stockDailyRecord{
-			date:          strings.TrimSpace(row[0]),
-			tradeVolume:   strings.TrimSpace(row[1]),
-			openingPrice:  openingPrice,
-			highestPrice:  highestPrice,
-			lowestPrice:   lowestPrice,
-			closingPrice:  closingPrice,
-			priceChange:   priceChange,
-			transactionNo: strings.TrimSpace(row[8]),
-		})
-	}
-	if len(parsed) == 0 {
-		return nil, fmt.Errorf("找不到有效的交易日資料")
-	}
-	return parsed, nil
-}
-
-// formatDailyMarket 從 MI_INDEX CSV 擷取發行量加權股價指數與市場成交統計。
-func formatDailyMarket(date string, rawCSV string) (string, error) {
-	if strings.TrimSpace(rawCSV) == "" || strings.Contains(rawCSV, "Error fetching") || strings.Contains(rawCSV, "Network Error") {
-		return "", fmt.Errorf("Python 服務未傳回可用的大盤行情")
-	}
-
-	reader := csv.NewReader(strings.NewReader(strings.TrimPrefix(rawCSV, "\ufeff")))
-	reader.FieldsPerRecord = -1
-	records, err := reader.ReadAll()
-	if err != nil {
-		return "", fmt.Errorf("CSV 格式錯誤：%w", err)
-	}
-
-	var indexLine string
-	var marketLine string
-	for _, row := range records {
-		if len(row) >= 5 && strings.TrimSpace(row[0]) == "發行量加權股價指數" {
-			indexLine = fmt.Sprintf("加權指數：%s｜漲跌：%s%s（%s%%）", strings.TrimSpace(row[1]), formatTWSESign(row[2]), strings.TrimSpace(row[3]), strings.TrimSpace(row[4]))
-		}
-		if len(row) >= 4 && strings.TrimSpace(row[0]) == "1.一般股票" {
-			marketLine = fmt.Sprintf("一般股票成交金額：%s 元\n成交股數：%s 股｜成交筆數：%s 筆", strings.TrimSpace(row[1]), strings.TrimSpace(row[2]), strings.TrimSpace(row[3]))
-		}
-	}
-	if indexLine == "" {
-		return "", fmt.Errorf("找不到發行量加權股價指數")
-	}
-	if marketLine == "" {
-		marketLine = "一般股票成交統計：證交所本次回應未提供可辨識資料"
-	}
-	return fmt.Sprintf("📊 單日大盤（%s）\n%s\n%s\n\n資料來源：臺灣證券交易所 MI_INDEX", date, indexLine, marketLine), nil
-}
-
-// parseTWSEFloat 移除證交所數字中的千分位逗號後轉為浮點數。
-func parseTWSEFloat(value string) (float64, error) {
-	normalized := strings.ReplaceAll(strings.TrimSpace(value), ",", "")
-	normalized = strings.ReplaceAll(normalized, "+", "")
-	return strconv.ParseFloat(normalized, 64)
-}
-
-// averageClosingPrice 計算指定交易日範圍的平均收盤價。
-func averageClosingPrice(records []stockDailyRecord) float64 {
-	var total float64
-	for _, record := range records {
-		total += record.closingPrice
-	}
-	return total / float64(len(records))
-}
-
-// buildStockSuggestion 依短期、較長期均價與最新收盤價產生中性觀察建議。
-func buildStockSuggestion(latest float64, shortAverage float64, longAverage float64) string {
-	switch {
-	case latest > shortAverage && shortAverage > longAverage:
-		return "短期價格位於均價之上且趨勢偏強，可續看量價是否同步，避免追高。"
-	case latest < shortAverage && shortAverage < longAverage:
-		return "短期價格位於均價之下且趨勢偏弱，宜先觀望並設定可承受的風險範圍。"
-	default:
-		return "短期與較長期趨勢尚未一致，方向不明顯，可等待更明確訊號。"
-	}
-}
-
-// formatTWSESign 將證交所漲跌符號欄位轉為容易閱讀的正負號。
-func formatTWSESign(value string) string {
-	switch strings.TrimSpace(value) {
-	case "+":
-		return "+"
-	case "-":
-		return "-"
-	default:
-		return ""
-	}
+	// 所有候選命令都不存在時提示部署方式。
+	return pythonCommand{}, fmt.Errorf("找不到 Python 3，請安裝 Python 或設定 PYTHON_BIN")
 }
