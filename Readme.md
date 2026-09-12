@@ -1,170 +1,287 @@
-# DiscordBot
+# Discord Bot
 
-Golang 版本
-
-## 參考資料
-- [使用 Golang 打造 Discord 機器人 (二)](https://tw.coderbridge.com/series/0d06c0381803425290e745a4ead229a9/posts/c19eeab1839a4cd68a43ef844296b83b)
-- [Discord Bot in Golang](https://youtu.be/myCtjnjV5YU)
-- [🔴 Building a Discord Bot with Go!](https://youtu.be/N8L1kPxxTJM)# discord-bot
 ## 專案簡介
 
-這是一個使用Go開發的 Discord 機器人。
+這是一個採用 Go/Python 混合式架構的 Discord 文字訊息機器人。
+
 程式採用事件驅動架構，啟動後會監聽伺服器中的文字訊息，並依照訊息內容回覆或執行對應功能。
+
+Go 是常駐主程式，負責 Discord 連線、訊息事件、文字規則、日期、天氣與股票功能控制；Python 只在收到股票查詢時執行一次，向臺灣證券交易所取得資料並以 UTF-8 JSON 回傳給 Go。股票查詢完成後 Python 程序會立即結束，不需要常駐服務，也不使用任何 TCP Port。
+
 小助手是Codex。
+
+## 主要功能
+
+- 由 `talk.txt` 管理完全比對、部分比對與動態 action。
+- 計算耶誕節與農曆新年倒數。
+- 顯示 Bot 主機目前時間。
+- 查詢中央氣象署未來 36 小時天氣與降雨機率。
+- 查詢指定股票最新交易日行情與名稱。
+- 查詢最近可用交易日的臺股大盤資訊。
+- 依近期收盤價與均價產生規則式股票觀察。
+- 支援 Windows 開發啟動及 OMV／Debian systemd 部署。
 
 ## 開發環境
 
-- Go 1.19
+- Go 1.25
 - [discordgo](https://github.com/bwmarrin/discordgo) v0.26.1
 - [godotenv](https://github.com/joho/godotenv) v1.4.0
 - [lunar-go](https://github.com/6tail/lunar-go) v1.4.6：農曆與國曆日期換算
 - [go-cwb](https://github.com/minchao/go-cwb)：串接中央氣象署開放資料 API
 
+## 執行環境
 
-## 專案架構
+- Go 1.25
+- Python 3
+- DiscordGo v0.26.1
+- godotenv v1.4.0
+- lunar-go v1.4.6
+- go-cwb
+
+Python 股票程式只使用標準函式庫，不需要安裝 `requests`、gRPC 或 protobuf 套件。
+
+## 專案結構
+
 ```text
 discord-bot/
-├── main.go             # 主程式、Discord 事件處理與 action 分派
-├── weather.go          # 中央氣象署天氣與降雨功能
-├── talk.txt            # 可擴充的文字對話與 action 規則
-├── start.sh            # systemd 使用的 Linux 前景啟動檔
-├── start.bat           # Windows CLI 啟動檔
-├── discord-bot.service # OMV／Debian systemd Service
-├── other.md            # Windows 與 Debian 詳細操作
-├── DiscordGo.md        # Discord Presence 型別備忘
-├── History.md          # 已完成工作與開發歷程
-├── chat.md             # 架構討論、決策與建議
-├── go.mod              # Go 模組與直接相依套件
-├── go.sum              # 相依套件版本校驗資訊
-└── Readme.md           # 專案說明
+├── .agent/
+│   ├── chat.md             # 架構決策、限制與歷史討論
+│   └── History.md          # 開發、變更與排錯歷程
+├── .env                    # 本機環境變數，不納入版本控制
+├── .gitignore              # Git 排除規則
+├── discord-bot.service     # OMV／Debian systemd Service
+├── DiscordGo.md            # DiscordGo 參數與功能備忘
+├── go.mod                  # Go 模組與直接相依套件
+├── go.sum                  # Go 相依套件校驗資訊
+├── knowhow.md              # 部署及維護經驗整理
+├── main.go                 # Discord 事件、規則載入與 action 分派
+├── Readme.md               # 專案說明
+├── start.bat               # Windows 啟動檔
+├── start.sh                # Linux／systemd 前景啟動檔
+├── stock.go                # 股票功能主體、Python 呼叫與資料格式化
+├── stock.py                # 證交所即時資料擷取與 JSON 輸出
+├── talk.txt                # 文字回覆與 action 規則
+└── weather.go              # 中央氣象署天氣與降雨功能
 ```
 
-目前訊息處理架構：
+`stock.proto`、`stock_pb2.py`、`stock_pb2_grpc.py`、`requirements.txt` 與 `stock_test.go` 已移除，目前專案不依賴這些檔案。
+
+## Go/Python 混合式架構
 
 ```text
 Discord 文字訊息
     ↓
-messageCreate()
-    ├── talk.txt：exact／contains
-    ├── talk.txt：action
+main.go：messageCreate()
+    ├── 帶股票代號的訊息
+    │       例如：2377股價、2377股票建議
+    │       ↓ goroutine
+    │   executeStockEvent()
     │       ↓
-    │   executeTalkAction()
-    │       ├── 耶誕節倒數
-    │       ├── 農曆新年倒數
-    │       ├── 36 小時天氣
-    │       ├── 降雨機率
-    │       └── 現在時間
-    └── main.go：九九乘法／算命
+    │   stock.go
+    │       ↓ exec.CommandContext()
+    │   stock.py
+    │       ↓ urllib
+    │   臺灣證券交易所
+    │       ↓ CSV
+    │   stock.py 輸出 UTF-8 JSON
+    │       ↓
+    │   stock.go 解析並回覆 Discord
+    │
+    └── talk.txt：exact／contains／action
+            ↓
+        executeTalkAction()
+            ├── 耶誕節倒數
+            ├── 農曆新年倒數
+            ├── 現在時間
+            ├── 天氣與降雨
+            ├── 預設個股行情
+            ├── 單日大盤
+            └── 預設股票建議
 ```
 
-## 設定方式（使用Go環境）
+股票資料不會在 Bot 啟動時預先查詢或儲存。每個股票事件都會建立獨立的非同步工作，並以 15 秒逾時限制 Python 與證交所查詢，避免阻塞其他 Discord 訊息。
 
-1. 在 [Discord Developer Portal](https://discord.com/developers/applications) 建立應用程式及 Bot。
-2. 將 Bot 加入要使用的 Discord 伺服器，並授予檢視頻道、讀取訊息與傳送訊息所需權限。
-3. 在專案根目錄建立 `.env`，內容如下：
+## 環境變數
+
+在專案根目錄建立 `.env`：
 
 ```dotenv
 DCToken=你的_Discord_Bot_Token
 CWA_API=你的_中央氣象署_API_Key
 CWA_LOCATION=臺北市
+
+# 選用：系統無法自動找到 Python 時指定執行檔名稱或完整路徑
+PYTHON_BIN=python3
+
+# 選用：stock.py 不在目前工作目錄時指定路徑
+STOCK_PYTHON_SCRIPT=stock.py
 ```
 
-`CWA_LOCATION` 是 `天氣` 與 `下雨` action 使用的預設縣市；目前不提供 Discord 斜線指令或城市輸入欄位。
+環境變數說明：
 
-請勿將 Bot Token 提交至版本控制；本專案的 `.gitignore` 已排除 `.env` 與 `.env.*`。
+| 名稱                  | 必要性             | 用途                                                      |
+| --------------------- | ------------------ | --------------------------------------------------------- |
+| `DCToken`             | 必要               | Discord Bot Token                                         |
+| `CWA_API`             | 使用天氣功能時必要 | 中央氣象署 API Key                                        |
+| `CWA_LOCATION`        | 選用               | `天氣` 與 `下雨` 的縣市；未設定時使用臺北市               |
+| `PYTHON_BIN`          | 選用               | 指定 Python 3 執行檔；未設定時由程式依作業系統搜尋        |
+| `STOCK_PYTHON_SCRIPT` | 選用               | 指定 `stock.py` 路徑；未設定時使用專案根目錄的 `stock.py` |
 
-> 【注意】<br>
-> 不要把 `.env`、Bot Token 或 Token 畫面提交至 Git。若 Token 曾經公開，應立即前往 Discord Developer Portal 重新產生 Token。
-
-## 各系統環境的啟動流程
-[參照該檔案](/other.md)
+`.env`、Discord Token 與中央氣象署 API Key 不可提交至版本控制。若 Token 曾經公開，應立即在 Discord Developer Portal 重新產生。
 
 ## 安裝與執行
 
-下載相依套件：
+### 下載 Go 相依套件
 
 ```bash
 go mod download
 ```
 
-啟動機器人：
+股票功能只需要 Python 3，不需要執行 `pip install`。
+
+### 一般啟動
 
 ```bash
 go run .
 ```
 
-終端機出現以下訊息時，代表機器人已開始執行：
+只需啟動 Go Bot，不要另外執行 `stock.py`。收到股票指令時，Go 會自動啟動 Python 子程序。
+
+終端機出現下列訊息時代表 Bot 已啟動：
 
 ```text
 Bot is now running.  Press CTRL-C to exit.
 ```
-停止機器人可按下 `Ctrl+C`。
 
-OMV／Debian 正式背景執行改由 systemd 管理，請依照 [other.md](other.md) 安裝 `discord-bot.service`，不要再對 `start.sh` 加上 `nohup` 或 `&`。
+按下 `Ctrl+C` 可讓 Go 關閉 Discord Session 後結束。
 
-## 建置
+### Windows
+
+```bat
+start.bat
+```
+
+如果程式找不到 Python，可在 `.env` 將 `PYTHON_BIN` 設為 Python 執行檔完整路徑。
+
+### OMV／Debian systemd
+
+`discord-bot.service` 預設使用 `/root/discord-bot` 作為專案目錄。若實際部署位置不同，安裝前應調整 `WorkingDirectory` 與 `ExecStart`。
+
+`start.sh` 會將 Go 執行檔建置到 `DISCORD_BOT_STATE_DIR`，再以前景 `exec` 方式交由 systemd 管理。Python 不會隨 Service 啟動；只有股票事件發生時才會執行。
+
+常用指令：
 
 ```bash
-go build .
+sudo systemctl daemon-reload
+sudo systemctl enable --now discord-bot.service
+sudo systemctl status discord-bot.service
+sudo journalctl -u discord-bot.service -f
+sudo systemctl restart discord-bot.service
+sudo systemctl stop discord-bot.service
 ```
-建置完成後會在專案目錄產生可執行檔；`.gitignore` 已排除 Windows 的 `.exe` 檔案。
 
-## 目前功能
+更完整的 OMV 與維護注意事項請參考 `knowhow.md`。
 
-| 類別 | 輸入訊息 | 機器人行為 |
-| --- | --- | --- |
-| 嚴謹規則 | `早安` | 早安！今天也要保持好心情。 |
-| 嚴謹規則 | `午安` | 午安！記得吃午餐。 |
-| 嚴謹規則 | `晚安` | 晚安，記得讓電腦和自己都休息一下。 |
-| 嚴謹規則 | `謝謝` | 不客氣，很高興能幫上忙！ |
-| 嚴謹規則 | `幫助` | 你可以試試看：九九乘法、算命、現在時間。 |
-| 部分規則 | `好累` | 辛苦了，先休息一下再繼續吧！ |
-| 部分規則 | `寫程式` | 先把需求拆小，一步一步完成就好。 |
-| main.go 功能 | `九九乘法` | 顯示九九乘法表 |
-| main.go 功能 | `算命` | 隨機回覆一則算命結果 |
-| 動態 action | `現在時間` | 回覆執行 Bot 環境的目前時間 |
-| 動態 action | `瑪麗亞凱莉解凍` | 距離耶誕節的倒數天數 |
-| 動態 action | `劉德華解凍` | 距離農曆新年的倒數天數 |
-| 動態 action | `天氣` | 查詢 `CWA_LOCATION` 最近 36 小時的天氣 |
-| 動態 action | `下雨` | 查詢 `CWA_LOCATION` 最近 36 小時的降雨機率 |
+## Discord 指令
 
-## 對話規則維護
+### 一般對話與動態 action
 
-一般文字對話已從 `messageCreate()` 移至 `talk.txt`。新增或修改對話時，不需要再修改 Go 程式碼，只要在 `talk.txt` 中維護規則即可。
+| 輸入訊息                                                 | 行為                                     |
+| -------------------------------------------------------- | ---------------------------------------- |
+| `早安`、`午安`、`晚安`、`謝謝`                           | 固定文字回覆                             |
+| `幫助`                                                   | 顯示可使用的文字指令                     |
+| 包含 `笨蛋`、`肚子餓`、`好累`、`寫程式`、`bug`、`壓力大` | 對應關鍵字回覆                           |
+| `現在時間`                                               | 顯示 Bot 主機目前時間                    |
+| `瑪麗亞凱莉解凍`                                         | 計算距離下一個耶誕節的天數               |
+| `劉德華解凍`                                             | 計算距離下一個農曆新年的天數             |
+| `天氣`                                                   | 查詢 `CWA_LOCATION` 未來 36 小時天氣     |
+| `下雨`                                                   | 查詢 `CWA_LOCATION` 未來 36 小時降雨機率 |
 
-每一筆規則包含以下三個欄位，欄位之間必須使用半形減號 `-` 分隔：
+### 股票功能
+
+| 輸入訊息       | 行為                                               |
+| -------------- | -------------------------------------------------- |
+| `個股行情`     | 查詢預設股票 `2377` 的最新交易日行情               |
+| `股票建議`     | 依預設股票 `2377` 近期價格產生規則式觀察           |
+| `單日大盤`     | 查詢證交所最近可用交易日的大盤資訊                 |
+| `2377股價`     | 查詢指定股票代號的名稱與最新交易日行情，以2377為例 |
+| `2377股票建議` | 依指定股票近期價格產生規則式觀察，以2377為例       |
+
+個股代號接受四至六碼英數字。個股行情會顯示股票名稱、交易日期、收盤、漲跌、開盤、最高、最低、成交股數與成交筆數。
+
+股票建議只依證交所歷史價格及均價規則產生，不構成投資建議。
+
+## 對話規則
+
+`talk.txt` 每行使用下列格式，欄位之間必須是半形減號：
 
 ```text
 比對方式-觸發文字-回覆內容
 ```
-支援的比對方式如下：
 
-| 比對方式 | 說明 | 範例行為 |
-| --- | --- | --- |
-| `exact` | Discord 訊息必須與觸發文字完全相同 | 判讀上較為嚴格，只有符合完整內容的訊息 |
-| `contains` | Discord 訊息中包含觸發文字即可 | 會符合觸發文字`好累`搭配其他詞語混用 |
-| `action` | 訊息完全相同時執行第三欄指定的 Go 函式 | `現在時間` 會執行 `local_time` action |
+| 比對方式   | 說明                                     | 範例                                            |
+| ---------- | ---------------------------------------- | ----------------------------------------------- |
+| `exact`    | 訊息必須完全符合觸發文字                 | `exact-早安-早安！今天也要保持好心情。`         |
+| `contains` | 訊息包含觸發文字即可                     | `contains-bug-別慌，先看錯誤訊息和最近的變更。` |
+| `action`   | 訊息完全相符時執行第三欄指定的 Go action | `action-單日大盤-daily_market`                  |
 
-新增規則範例：
+注意事項：
 
-```text
-exact-你好-你好，很高興見到你！
-contains-晚安-晚安，祝你有個好夢！
-action-現在時間-local_time
+- 空白行及以 `#` 開頭的行會被忽略。
+- 解析器只切割前兩個半形減號，第三欄仍可包含減號。
+- 未知規則型別、空白欄位或未登錄 action 會讓 Bot 拒絕啟動並指出檔名與行號。
+- `talk.txt` 只在 Bot 啟動時載入，修改後需要重新啟動。
+- 新增 action 時必須同步更新 `main.go` 的 action 常數、驗證條件及 `executeTalkAction()`。
+
+## 建置與檢查
+
+格式化及確認 Go 專案可編譯：
+
+```bash
+gofmt -w main.go weather.go stock.go
+go mod tidy
+go test ./...
+go vet ./...
 ```
-分隔符號必須使用半形減號 `-`，不可使用全形破折號、Tab或空格。解析器只會切割前兩個減號，因此第三欄的回覆內容仍可包含減號。
 
-維護規則時請注意：
+確認 Python 語法：
 
-- 空白行會被忽略。
-- 以 `#` 開頭的內容為註解，不會成為對話規則。
-- 可以持續加入任意筆數的規則。
-- 同一則訊息符合多筆規則時，機器人會依照檔案順序逐一回覆。
-- `talk.txt` 會在程式啟動時載入，修改後需要重新啟動機器人。
-- `action` 第三欄必須是 `main.go` 已登錄的 action 名稱，否則 Bot 會拒絕啟動。
-- `九九乘法` 與 `算命` 仍由 `main.go` 直接處理；`現在時間` 已改由 `talk.txt` action 觸發。
->   【注意】<br>
->   不可使用 Tab、空格、全形破折號 `—` 或全形減號取代半形減號 `-`。<br>
->   觸發文字本身不可包含半形減號；第三欄的回覆內容可以包含減號。<br>
->   如果規則的欄位數量錯誤、比對方式不受支援，或觸發文字及回覆內容為空白，<br>
->   程式會顯示錯誤並停止啟動，以便修正有問題的規則。<br>
+```bash
+python3 -m py_compile stock.py
+```
+
+建置 Go 執行檔：
+
+```bash
+go build .
+```
+
+`.gitignore` 已排除 Windows `.exe`、`.env` 與 `.env.*`。
+
+## 目前限制
+
+- `talk.txt` 不會在執行期間自動重新載入。
+- 天氣與股票功能依賴外部服務，可能受到網路、服務狀態及資料提供時間影響。
+- 每次股票查詢都會啟動新的 Python 程序，沒有快取或同時請求合併。
+- 證交所休市時，單日大盤會向前尋找最近十天內可用的交易資料。
+- Discord 訊息傳送錯誤目前未集中記錄。
+
+## 相關文件
+
+- `.agent/History.md`：開發與架構變更歷程。
+- `.agent/chat.md`：架構決策、限制與歷史討論。
+- `knowhow.md`：部署與維護經驗。
+- `DiscordGo.md`：DiscordGo 系統參數備忘。
+
+## 參考資料
+
+- [DiscordGo](https://github.com/bwmarrin/discordgo)
+- [中央氣象署開放資料平臺](https://opendata.cwa.gov.tw/)
+- [臺灣證券交易所](https://www.twse.com.tw/)
+- [lunar-go](https://github.com/6tail/lunar-go)
+
+### 參考資料（較舊）
+
+- [使用 Golang 打造 Discord 機器人 (二)](https://tw.coderbridge.com/series/0d06c0381803425290e745a4ead229a9/posts/c19eeab1839a4cd68a43ef844296b83b)
+- [Discord Bot in Golang](https://youtu.be/myCtjnjV5YU)
+- [🔴Building a Discord Bot with Go!](https://youtu.be/N8L1kPxxTJM)# discord-bot

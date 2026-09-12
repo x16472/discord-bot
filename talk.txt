@@ -8,7 +8,7 @@ exact-早安-早安！今天也要保持好心情。
 exact-午安-午安！記得吃午餐。
 exact-晚安-晚安，記得讓電腦和自己都休息一下。
 exact-謝謝-不客氣，很高興能幫上忙！
-exact-幫助-你可以試試看：瑪麗亞凱莉解凍、劉德華解凍、現在時間、天氣、下雨。
+exact-幫助-你可以試試看：瑪麗亞凱莉解凍、劉德華解凍、現在時間、天氣、下雨、個股行情、單日大盤、股票建議，或輸入「2377股價」。
 contains-好累-辛苦了，先休息一下再繼續吧！
 contains-寫程式-先把需求拆小，一步一步完成就好。
 contains-bug-別慌，先看錯誤訊息和最近的變更。
@@ -18,3 +18,6 @@ action-劉德華解凍-lunar_new_year
 action-現在時間-local_time
 action-天氣-weather_36h
 action-下雨-rainProbability_action
+action-單日大盤-daily_market
+action-個股行情-stock_price
+action-股票建議-stock_suggestion

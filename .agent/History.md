@@ -1,5 +1,39 @@
 # 開發歷程
 
+## 2026-09-12：Go/Python 混合式股票架構
+
+- 專案由純 Go 功能擴充為 Go/Python 混合式架構，但 Go 仍是唯一常駐程序與主要控制層。
+- 新增 `stock.go`，集中處理股票指令、Python 子程序、JSON/CSV 解析、個股行情、單日大盤與股票建議。
+- 新增 `stock.py`，使用 Python 3 標準函式庫 `urllib` 即時取得臺灣證券交易所資料：
+  - `STOCK_DAY`：指定股票當月每日成交資訊。
+  - `MI_INDEX`：最近可用交易日的大盤資訊。
+- Go 只在收到股票事件時透過 `exec.CommandContext()` 執行一次 `stock.py`；Python 完成 JSON 輸出後立即結束，不需要預先啟動服務。
+- Go 與 Python 使用 UTF-8 JSON 經標準輸出交換資料，不使用 TCP Port、gRPC 或 protobuf。
+- 曾嘗試以 `localhost:50051` gRPC 連線 Python，但在 Python 服務未常駐時產生 `connection refused`；後續改成按需子程序架構並清除相關程式與相依套件。
+- Python 端由第三方 `requests` 改為標準函式庫 `urllib`，因此不再需要 Python requirements 檔案或額外套件安裝。
+- `main.go` 的 `messageCreate()` 會先解析 `2377股價`、`2377股票建議` 等帶代號事件，並以 goroutine 非同步執行，避免外部查詢阻塞其他 Discord 訊息。
+- `talk.txt` 新增無參數 action：
+  - `action-個股行情-stock_price`，使用預設股票代號 `2377`。
+  - `action-單日大盤-daily_market`。
+  - `action-股票建議-stock_suggestion`，使用預設股票代號 `2377`。
+- 個股行情可從證交所 CSV 標題擷取股票名稱，並顯示代號、名稱、交易日期、收盤、漲跌、開盤、最高、最低、成交股數與成交筆數。
+- 股票建議使用近期收盤價、短期均價與較長期均價產生規則式觀察，回覆中明確標示不構成投資建議。
+- 九九乘法與算命指令及函式已移除，不再屬於目前功能。
+- 曾建立 `stock_test.go` 驗證指令解析、CSV 解析、股票名稱、行情格式及大盤格式；相依性稽核與測試通過後依 Phoenix 指示移除該檔。
+- 驗證範圍包括 `go mod tidy`、`go test ./...`、Python 語法編譯、JSON 錯誤介面、UTF-8 中文輸出及舊 gRPC/protobuf 引用掃描。
+
+## 2026-09-12：目前檔案與相依性狀態
+
+- Go 版本為 1.25，直接相依包括 `lunar-go`、`discordgo`、`godotenv` 與 `go-cwb`。
+- Python 股票功能只依賴 Python 3 標準函式庫，不需要 `requests`、`grpcio` 或 `protobuf`。
+- 股票流程的主要檔案只有 `stock.go` 與 `stock.py`；`stock.proto`、`stock_pb2.py`、`stock_pb2_grpc.py`、`requirements.txt` 與 `stock_test.go` 均已移除。
+- 專案目前沒有 `other.md`；部署與操作說明應以 `Readme.md`、`knowhow.md`、`start.sh` 與 `discord-bot.service` 為準。
+- `.env` 仍由 `.gitignore` 排除，文件只記錄環境變數名稱，不應保存實際 Discord Token 或中央氣象署 API Key。
+
+## 舊紀錄說明
+
+以下 2026-07-31 至 2026-08-01 的內容保留當時實作與決策背景；其中 Go 1.19、九九乘法、算命、`nohup` 及 `other.md` 等描述不代表目前狀態。
+
 ## 2026-07-31：專案文件與基礎架構整理
 
 - 盤點既有 Go Discord Bot 的單檔事件驅動架構，確認主要進入點為 `main.go`。
@@ -104,7 +138,7 @@
 - 使用獨立 Go build cache 處理本機系統快取路徑衝突，避免修改專案範圍外的既有快取。
 - 天氣功能的編譯與靜態檢查已完成；基於 API Key 安全及避免未授權外部請求，開發期間未使用 `.env` 金鑰執行真實 API 連線測試。
 
-## 目前限制與後續方向
+## 2026-08-01 當時限制與後續方向
 
 - `talk.txt` 於 Bot 啟動時載入，修改規則後需要重新啟動。
 - 目前天氣查詢每次都會呼叫中央氣象署 API，尚未加入快取、同時請求合併與 API 重試機制。

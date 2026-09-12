@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,20 +12,20 @@ import (
 	//農曆日期換算套件，用來取得明年農曆正月初一的國曆日期。
 	"github.com/6tail/lunar-go/calendar"
 
-	//算命
 	"github.com/bwmarrin/discordgo"
 	_ "github.com/joho/godotenv/autoload"
 )
 
 const (
-	maxNum1  = 10
-	maxNum2  = 10
 	talkFile = "talk.txt"
 	//動態功能識別名稱必須與 talk.txt 的 action 第三欄一致。
 	christmasCountdownAction  = "christmas_countdown"
 	localTimeAction           = "local_time"
 	lunarNewYearAction        = "lunar_new_year"
 	rainProbabilityActionName = "rainProbability_action"
+	dailyMarketActionName     = "daily_market"
+	stockPriceActionName      = "stock_price"
+	stockSuggestionActionName = "stock_suggestion"
 	weather36HourAction       = "weather_36h"
 )
 
@@ -39,8 +38,7 @@ type talkRule struct {
 var talkRules []talkRule
 
 func main() {
-	// 以啟動時間初始化算命與降雨口語字庫的隨機選句。
-	// rand.Seed(time.Now().UnixNano()) 在1.20版本顯得多餘了
+	//載入文字規則；降雨口語字庫由 Go 1.20 以上版本自動初始化亂數來源。
 	var err error
 	talkRules, err = loadTalkRules(talkFile)
 	if err != nil {
@@ -110,6 +108,16 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	//解析帶股票代號的訊息事件，只有符合指令時才建立非同步查詢工作。
+	if command, matched := parseStockCommand(m.Content); matched {
+		if command.errorMessage != "" {
+			s.ChannelMessageSend(m.ChannelID, command.errorMessage)
+			return
+		}
+		go executeStockEvent(s, m.ChannelID, command)
+		return
+	}
+
 	// 根據 talk.txt 的比對方式執行一般回覆或動態日期指令。
 	for _, rule := range talkRules {
 		switch rule.matchType {
@@ -123,15 +131,21 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 		case "action":
 			if m.Content == rule.trigger {
-				executeTalkAction(s, m.ChannelID, rule.reply)
+				//動態 action 使用背景工作執行，避免外部資料查詢阻塞其他訊息事件。
+				go executeTalkAction(s, m.ChannelID, rule.reply)
+				return
 			}
 		}
 	}
-	switch m.Content {
-	case "九九乘法":
-		printMultiplicationTable(s, m.ChannelID)
-	case "算命":
-		fortuneTelling(s, m.ChannelID)
+}
+
+// executeStockEvent 依 messageCreate 解析出的事件執行 stock.go 股票功能。
+func executeStockEvent(s *discordgo.Session, channelID string, command stockCommand) {
+	switch command.action {
+	case stockPriceActionName:
+		stockPriceAction(s, channelID, command.stockNumber)
+	case stockSuggestionActionName:
+		stockSuggestionAction(s, channelID, command.stockNumber)
 	}
 }
 
@@ -174,7 +188,7 @@ func loadTalkRules(fileName string) ([]talkRule, error) {
 			return nil, fmt.Errorf("%s line %d has an empty trigger or reply", fileName, lineNumber)
 		}
 
-		if rule.matchType == "action" && rule.reply != christmasCountdownAction && rule.reply != localTimeAction && rule.reply != lunarNewYearAction && rule.reply != weather36HourAction && rule.reply != rainProbabilityActionName {
+		if rule.matchType == "action" && rule.reply != christmasCountdownAction && rule.reply != localTimeAction && rule.reply != lunarNewYearAction && rule.reply != weather36HourAction && rule.reply != rainProbabilityActionName && rule.reply != dailyMarketActionName && rule.reply != stockPriceActionName && rule.reply != stockSuggestionActionName {
 			//啟動時先驗證動態功能名稱，避免輸入指令後沒有任何回覆。
 			return nil, fmt.Errorf("%s line %d has unsupported action %q", fileName, lineNumber, rule.reply)
 		}
@@ -199,6 +213,12 @@ func executeTalkAction(s *discordgo.Session, channelID string, action string) {
 		send36HourWeather(s, channelID)
 	case rainProbabilityActionName:
 		rainProbabilityAction(s, channelID)
+	case dailyMarketActionName:
+		dailyMarketAction(s, channelID)
+	case stockPriceActionName:
+		stockPriceAction(s, channelID, defaultStockNumber)
+	case stockSuggestionActionName:
+		stockSuggestionAction(s, channelID, defaultStockNumber)
 	}
 }
 
@@ -232,39 +252,6 @@ func calendarDaysBetween(from time.Time, to time.Time) int {
 	fromDate := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
 	toDate := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
 	return int(toDate.Sub(fromDate) / (24 * time.Hour))
-}
-
-func printMultiplicationTable(s *discordgo.Session, channelID string) {
-	var sb strings.Builder
-
-	//使用 Discord 程式碼區塊格式，確保等寬字體排版整齊
-	sb.WriteString("```\n")
-
-	for i := 1; i < maxNum1; i++ {
-		for j := 1; j < maxNum2; j++ {
-			//Sprintf 格式化字串並寫入 builder
-			sb.WriteString(fmt.Sprintf("%d*%d=%2d  ", j, i, i*j))
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("```")
-
-	//發送訊息到 Discord
-	s.ChannelMessageSend(channelID, sb.String())
-}
-
-func fortuneTelling(s *discordgo.Session, channelID string) {
-	answers := []string{
-		"大吉！你今天出門會踩到黃金。",
-		"大凶……建議你今天不要點開這份程式碼。",
-		"諸事不宜，特別是寫 Code，快去睡覺。",
-		"看來你今天會被 Bug 狠狠愛上。",
-		"今天的你，運氣不錯",
-	}
-	//隨機選一個索引
-	randomIndex := rand.Intn(len(answers))
-	s.ChannelMessageSend(channelID, answers[randomIndex])
 }
 
 func getLocalTime(s *discordgo.Session, channelID string) {

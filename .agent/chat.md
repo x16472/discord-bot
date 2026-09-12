@@ -10,57 +10,74 @@
 - 當討論項目確定並完成後，再將結果同步到程式、`History.md` 與必要的操作文件。
 
 
-## 目前結論
+## 目前結論（2026-09-12）
 
-專案已經具備可運作的文字訊息 Bot、外部對話規則、節慶日期計算、中央氣象署 36 小時預報、降雨口語回覆、Discord Presence，以及 Windows、Debian 啟動檔。
+專案目前採用 Go/Python 混合式架構，Go 是常駐主程式與主要控制層，Python 只負責證交所資料擷取。
 
-Phoenix 已決定不採用 `/天氣`、Discord 城市輸入、Guild Command 與城市別名。天氣與降雨維持原本的文字 action，查詢城市繼續由 `.env` 的 `CWA_LOCATION` 管理。
-
-Linux 部署則由原本的 `nohup` 與 PID 檔改為 systemd：`start.sh` 只負責編譯並以前景 `exec` 執行 Bot，systemd 負責開機啟動、停止、異常重啟、程序狀態與 journal 日誌。
----
-答：`/天氣`這個我打算棄用，推測需要的是特殊插件，所以不用了。目前還是先透過[env](/.env)更新就好。利用指令介面操作`start.sh`的方式確實是個好手段，可以再討論。
-
----
+- `main.go` 建立 Discord Session、註冊 `messageCreate()`、載入 `talk.txt` 並分派動態 action。
+- `weather.go` 由 Go 直接查詢中央氣象署 API，提供 36 小時天氣與降雨機率。
+- `stock.go` 是股票功能主體，負責辨識股票指令、非同步事件工作、啟動 Python、解析 JSON/CSV、整理行情及產生規則式建議。
+- `stock.py` 不是常駐服務。只有收到股票事件時，Go 才透過 `exec.CommandContext()` 啟動一次 Python；查詢完成後程序立即結束。
+- Go 與 Python 以標準輸出的 UTF-8 JSON 溝通，不使用 TCP Port、gRPC、protobuf 或預存資料。
+- Python 股票查詢只使用標準函式庫 `urllib`，不需要額外安裝套件。
+- 九九乘法與算命功能已移除，相關入口改為個股行情、單日大盤與股票建議。
+- 天氣功能繼續採文字 action，縣市由 `.env` 的 `CWA_LOCATION` 管理；目前不採用 Discord 斜線指令。
+- OMV／Debian 繼續由 systemd 管理，`start.sh` 只編譯並以前景方式執行 Go Bot。
 
 ## 目前架構盤點
 
-| 檔案 | 現有責任 | 觀察 |
+| 檔案 | 現有責任 | 執行生命週期 |
 | --- | --- | --- |
-| `main.go` | Discord Session、文字訊息事件、對話規則載入、action 分派、日期與其他功能 | 不掛載 Interaction；現在時間已納入 action 分派 |
-| `weather.go` | CWA API 查詢、預報資料整併、天氣與降雨回覆 | 仍使用 `CWA_LOCATION`，未設定時預設臺北市 |
-| `talk.txt` | `exact`、`contains`、`action` 規則 | 容易擴充，但啟動後不會自動重新載入 |
-| `start.sh` | Debian 編譯後以前景 `exec` 啟動 Bot | 由 systemd 管理停止、重啟、狀態與日誌 |
-| `discord-bot.service` | OMV／Debian systemd Service | 使用目前 `/root/discord-bot` 部署路徑 |
-| `start.bat` | Windows 背景啟動並等待 Go 程式結束 | 功能簡單，適合開發使用 |
-| `Readme.md` | 專案簡介、功能與基礎使用方式 | 已同步文字 action、環境設定與 systemd 架構 |
-| `other.md` | Windows 與 OMV／Debian 詳細操作 | Debian 已改用 `systemctl` 與 `journalctl` |
-| `History.md` | 開發、排錯、驗證與規劃紀錄 | 已區分目前限制與未來方向 |
-| `DiscordGo.md` | Presence 活動型別速查 | 內容精簡，可保留為開發備忘 |
-| `go.mod`、`go.sum` | Go 版本與相依套件 | 目前使用 Go 1.19 與 DiscordGo v0.26.1 |
-| `.gitignore` | 排除 `.env`、`.env.*`、Windows 執行檔與暫存檔 | `.env` 已排除，仍需避免任何日誌輸出密鑰 |
+| `main.go` | Discord Session、文字訊息事件、規則載入、action 與股票事件分派 | Go Bot 啟動後常駐 |
+| `stock.go` | 股票指令解析、Python 子程序、JSON/CSV 解析、Discord 股票回覆 | 收到股票事件時由 goroutine 執行 |
+| `stock.py` | 即時取得證交所 `STOCK_DAY`、`MI_INDEX` CSV 並輸出 JSON | 每次股票查詢啟動一次，完成後結束 |
+| `weather.go` | CWA API、預報資料整併、天氣與降雨回覆 | 收到對應 action 時執行 |
+| `talk.txt` | `exact`、`contains`、`action` 規則 | Bot 啟動時載入一次 |
+| `start.sh` | Linux 編譯及前景啟動 Go Bot | 由 systemd 呼叫 |
+| `start.bat` | Windows 執行 `go run .` | 適合本機開發 |
+| `discord-bot.service` | OMV／Debian 程序管理與 journal 日誌 | 由 systemd 管理 |
+| `go.mod`、`go.sum` | Go 1.25 與 Go 套件相依 | 建置時使用 |
+| `Readme.md` | 依目前專案內容提供安裝、設定與功能說明 | 隨程式變更同步更新 |
+| `.agent/History.md` | 已完成變更與排錯歷程 | 僅供維護參考 |
+| `.agent/chat.md` | 架構決策、限制與歷史討論 | 僅供維護參考 |
 
 ## 現有訊息資料流
 
 ```text
 Discord 文字訊息
     ↓
-messageCreate()
-    ├── talk.txt：exact／contains
-    ├── talk.txt：action
+main.go：messageCreate()
+    ├── 帶代號股票指令，例如 2377股價、2377股票建議
+    │       ↓ goroutine
+    │   executeStockEvent()
     │       ↓
-    │   executeTalkAction()
-    │       ├── 耶誕節倒數
-    │       ├── 農曆新年倒數
-    │       ├── 36 小時天氣
-    │       └── 降雨機率
-    └── main.go 既有功能：九九乘法／算命
+    │   stock.go
+    │       ↓ exec.CommandContext
+    │   stock.py → 證交所 → UTF-8 JSON → stock.go → Discord
+    │
+    └── talk.txt：exact／contains／action
+            ↓ action 使用 goroutine
+        executeTalkAction()
+            ├── 耶誕節與農曆新年倒數
+            ├── 現在時間
+            ├── 天氣與降雨機率
+            ├── 預設個股行情（2377）
+            ├── 單日大盤
+            └── 預設股票建議（2377）
 ```
 
-這個流程適合沒有參數的文字觸發，但不適合 `/天氣 臺中市` 這類帶參數、需要 Discord 原生輸入欄位的互動。若強行把所有參數都塞進 `talk.txt`，規則解析器會逐漸承擔不屬於它的命令列解析責任。
----
+股票資料不會在 Bot 啟動時載入，也不會保存在記憶體或檔案中。這個設計省去常駐 Python 服務與 Port 管理，但每次查詢都會承擔 Python 啟動及證交所網路請求時間；目前由 15 秒 `context` 限制整次工作。
 
+## 目前維護重點
 
-## 已否決方案：Discord 天氣互動資料流
+- `stock.py` 的標準輸出只能包含單一 JSON；除錯資訊應寫到標準錯誤，避免 Go 無法解析。
+- Python 執行檔預設依作業系統搜尋，也可用 `PYTHON_BIN` 指定；腳本位置可用 `STOCK_PYTHON_SCRIPT` 指定。
+- 新增 action 時必須同步更新 `talk.txt`、`main.go` 的 action 驗證及 `executeTalkAction()`。
+- `talk.txt` 修改後需要重新啟動 Bot 才會重新載入。
+- 股票建議是依近期收盤價與均價產生的規則式觀察，不構成投資建議。
+- `stock_test.go` 已在完成相依性與格式驗證後移除；目前 `go test ./...` 的用途是確認所有 Go 套件能完成編譯。
+
+## 歷史討論封存：Discord 天氣互動資料流
 
 本節保留最初的設計推演。Phoenix 已於第 317 行後決定不採用 `/天氣`、城市輸入、Guild Command 與城市別名，因此本節不再是待實作項目。
 
@@ -228,9 +245,9 @@ type config struct {
 
 目前使用全域 `math/rand` 並在啟動時 Seed。這對一般口語選句足夠，但測試結果不容易重現。可以讓口語選句函式接收亂數來源，測試時使用固定 Seed，正式執行時再使用時間 Seed。
 
-### 6. 檢視 Go 與相依套件升級
+### 6. 檢視 Go 與相依套件升級（歷史建議）
 
-目前模組宣告 Go 1.19。升級前應先確認 OMV 上可安裝的 Go 版本、DiscordGo 與 go-cwb 的相容性，再以獨立分支執行測試；不建議只修改 `go.mod` 的版本數字而沒有更新部署環境。
+這項建議提出時模組仍宣告 Go 1.19；目前 `go.mod` 已改為 Go 1.25。部署 OMV 前仍需確認主機工具鏈版本與相依套件相容性。
 
 ## 測試與驗收建議
 

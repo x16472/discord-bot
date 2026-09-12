@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultWeatherLocation = "桃園市"
+	defaultWeatherLocation = "臺北市"
 )
 
 // weatherPeriod 保存同一預報時段的天氣、降雨、溫度與舒適度。
