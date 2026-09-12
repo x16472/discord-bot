@@ -26,9 +26,9 @@ const (
 
 var (
 	//stockPriceCommandPattern 支援「2377股價」格式的個股行情指令。
-	stockPriceCommandPattern = regexp.MustCompile(`^([0-9A-Za-z]{4,6})股價$`)
+	stockPriceCommandPattern = regexp.MustCompile(`^([0-9]{4,6}[A-Za-z]?)股價$`)
 	//stockSuggestionCommandPattern 支援「2377股票建議」格式的個股分析指令。
-	stockSuggestionCommandPattern = regexp.MustCompile(`^([0-9A-Za-z]{4,6})股票建議$`)
+	stockSuggestionCommandPattern = regexp.MustCompile(`^([0-9]{4,6}[A-Za-z]?)股票建議$`)
 )
 
 // stockResponse 接收 Python 子程序以 JSON 回傳的證交所 CSV 與錯誤資訊。

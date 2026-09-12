@@ -26,7 +26,7 @@ REQUEST_TIMEOUT_SECONDS = 10
 # MARKET_LOOKBACK_DAYS 涵蓋週末與連續休市期間。
 MARKET_LOOKBACK_DAYS = 10
 # STOCK_NUMBER_PATTERN 限制股票代號為四至六碼英數字。
-STOCK_NUMBER_PATTERN = re.compile(r"^[0-9A-Za-z]{4,6}$")
+STOCK_NUMBER_PATTERN = re.compile(r"^[0-9]{4,6}[A-Za-z]?$")
 # REQUEST_HEADERS 提供證交所辨識來源所需的 User-Agent。
 REQUEST_HEADERS = {
     "User-Agent": (
@@ -71,7 +71,8 @@ def fetch_latest_market_csv():
         # 組合證交所單日市場行情 CSV 網址。
         url = (
             "https://www.twse.com.tw/exchangeReport/MI_INDEX"
-            f"?response=csv&date={date_string.replace('-', '')}&type=ALLBUT0999"
+            f"?response=csv&date={date_string.replace('-', '')}"
+            f"&type=ALLBUT0999"
         )
         # 收到 Go 指令後才執行本次 HTTP 請求，不使用快取。
         csv_text = fetch_twse_csv(url)
