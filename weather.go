@@ -257,7 +257,12 @@ func (handler *weatherInteractions) registerCommands(session *discordgo.Session)
 		registered, err := session.ApplicationCommandCreate(session.State.User.ID, guildID, command) // 使用目前 Bot 的應用程式 ID。
 		switch err {                                                                                 // 分開記錄實際成功或失敗。
 		case nil: // Discord 已接受指令註冊。
-			fmt.Printf("已註冊 /%s：範圍=%s，指令 ID=%s，城市選項=%d，自動完成=%t。\n", command.Name, scope, registered.ID, len(command.Options[0].Choices), command.Options[0].Autocomplete) // 明確記錄可見入口與選單狀態。
+			fmt.Printf("已註冊 /%s：範圍=%s，指令 ID=%s，城市選項=%d，自動完成=%t。\n",
+			command.Name,
+			scope,
+			registered.ID,
+			len(command.Options[0].Choices),
+			command.Options[0].Autocomplete) // 明確記錄可見入口與選單狀態。
 		default: // 使用狀態碼區分授權與其他 REST 問題。
 			logWeatherDiscordError("註冊 /"+command.Name+"（"+scope+"）", err) // 不輸出含 Token 的請求內容。
 		} // 結束註冊結果分派。
