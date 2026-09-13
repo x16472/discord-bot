@@ -77,7 +77,7 @@ git --version
 ### 2. 確認必要檔案
 
 ```bash
-ls -l main.go weather.go talk.txt start.sh discord-bot.service .env
+ls -l main.go weather.go weather.py talk.txt start.sh discord-bot.service .env
 ```
 
 `.env` 至少需要：
@@ -90,7 +90,9 @@ CWA_LOCATION=臺北市
 
 - `DCToken` 用於連線 Discord。
 - `CWA_API` 用於中央氣象署 API。
-- `CWA_LOCATION` 是文字指令 `天氣` 與 `下雨` 查詢的縣市。
+- `CWA_LOCATION` 是文字指令 `天氣`、`下雨`，以及斜線指令省略城市選項時使用的預設縣市。
+- 天氣功能由 `weather.go` 接收事件，啟動一次 `weather.py` 處理 CWA 資料後立即結束；部署時請一併提供 `weather.py` 與可用的 Python 3.7 以上版本，必要時設定 `PYTHON_BIN`、`WEATHER_PYTHON_SCRIPT`。
+- 連線後先註冊 `/天氣`、`/下雨` 的「城市名稱」搜尋入口，再由 Python 同步 CWA 全部縣市並結束，成功後更新完整城市選項；同步失敗仍保留入口，後續互動會觸發背景重試，至少間隔 30 秒。可用 `DISCORD_COMMAND_GUILD_ID` 限定測試伺服器，留白則註冊全域指令。
 - `.env` 不得提交至 Git，也不要將內容貼進公開日誌。
 
 ### 3. 檢查 Linux 換行與 Shell 語法

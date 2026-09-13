@@ -56,6 +56,8 @@ func main() {
 
 	//Register the messageCreate func as a callback for MessageCreate events.
 	dg.AddHandler(messageCreate)
+	weatherCommands := newWeatherInteractions() // 只建立事件處理器，連線與指令註冊不等待 CWA。
+	dg.AddHandler(weatherCommands.handle)       // 接收天氣斜線指令與城市搜尋互動。
 
 	//只監聽訊息
 	dg.Identify.Intents = discordgo.IntentsGuildMessages
@@ -71,6 +73,7 @@ func main() {
 	if err := updateBotGameStatus(dg); err != nil {
 		fmt.Println("error updating game status,", err)
 	}
+	weatherCommands.register(dg) // 先註冊天氣與下雨入口，再由 Python 同步 CWA 全部縣市選項。
 
 	//Wait here until CTRL-C or other term signal is received.
 	fmt.Println("Bot is now running.  Press CTRL-C to exit.")

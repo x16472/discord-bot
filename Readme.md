@@ -2,11 +2,11 @@
 
 ## 專案簡介
 
-這是一個採用 Go/Python 混合式架構的 Discord 文字訊息機器人。
+這是一個採用 Go/Python 混合式架構的 Discord 文字訊息與斜線指令機器人。
 
 程式採用事件驅動架構，啟動後會監聽伺服器中的文字訊息，並依照訊息內容回覆或執行對應功能。
 
-Go 是常駐主程式，負責 Discord 連線、訊息事件、文字規則、日期、天氣與股票功能控制；Python 只在收到股票查詢時執行一次，向臺灣證券交易所取得資料並以 UTF-8 JSON 回傳給 Go。股票查詢完成後 Python 程序會立即結束，不需要常駐服務，也不使用任何 TCP Port。
+Go 是常駐主程式，負責 Discord 連線、訊息事件、文字規則、日期與子程序控制。天氣功能由 `weather.go` 接收事件，按需啟動一次 `weather.py`；Python 負責 CWA 查詢、城市整理、預報合併及文字與卡片內容，以 UTF-8 JSON 回傳後立即結束。股票功能仍透過 `stock.go` 呼叫一次 `stock.py`。Python 不常駐，也不監聽任何 TCP Port；對外資料查詢使用 HTTPS。
 
 小助手是Codex。
 
@@ -27,18 +27,18 @@ Go 是常駐主程式，負責 Discord 連線、訊息事件、文字規則、�
 - [discordgo](https://github.com/bwmarrin/discordgo) v0.26.1
 - [godotenv](https://github.com/joho/godotenv) v1.4.0
 - [lunar-go](https://github.com/6tail/lunar-go) v1.4.6：農曆與國曆日期換算
-- [go-cwb](https://github.com/minchao/go-cwb)：串接中央氣象署開放資料 API
+- Python 標準函式庫 `urllib.request`：串接中央氣象署開放資料 API
 
 ## 執行環境
 
 - Go 1.25
-- Python 3
+- Python 3.7 以上
 - DiscordGo v0.26.1
 - godotenv v1.4.0
 - lunar-go v1.4.6
-- go-cwb
 
-Python 股票程式只使用標準函式庫，不需要安裝 `requests`、gRPC 或 protobuf 套件。
+
+Python 天氣及股票程式只使用標準函式庫，不需要安裝 `requests`、gRPC 或 protobuf 套件。
 
 ## 專案結構
 
@@ -61,7 +61,8 @@ discord-bot/
 ├── stock.go                # 股票功能主體、Python 呼叫與資料格式化
 ├── stock.py                # 證交所即時資料擷取與 JSON 輸出
 ├── talk.txt                # 文字回覆與 action 規則
-└── weather.go              # 中央氣象署天氣與降雨功能
+├── weather.go              # 天氣事件、城市選項、Python 程序控制與 Discord 回覆
+└── weather.py              # 單次 CWA 查詢、城市整理、預報合併與文字／卡片 JSON
 ```
 
 `stock.proto`、`stock_pb2.py`、`stock_pb2_grpc.py`、`requirements.txt` 與 `stock_test.go` 已移除，目前專案不依賴這些檔案。
@@ -123,7 +124,7 @@ STOCK_PYTHON_SCRIPT=stock.py
 | --------------------- | ------------------ | --------------------------------------------------------- |
 | `DCToken`             | 必要               | Discord Bot Token                                         |
 | `CWA_API`             | 使用天氣功能時必要 | 中央氣象署 API Key                                        |
-| `CWA_LOCATION`        | 選用               | `天氣` 與 `下雨` 的縣市；未設定時使用臺北市               |
+| `CWA_LOCATION`        | 選用               | 文字指令或斜線指令未指定城市時的預設縣市；未設定時使用臺北市               |
 | `PYTHON_BIN`          | 選用               | 指定 Python 3 執行檔；未設定時由程式依作業系統搜尋        |
 | `STOCK_PYTHON_SCRIPT` | 選用               | 指定 `stock.py` 路徑；未設定時使用專案根目錄的 `stock.py` |
 
@@ -137,7 +138,7 @@ STOCK_PYTHON_SCRIPT=stock.py
 go mod download
 ```
 
-股票功能只需要 Python 3，不需要執行 `pip install`。
+天氣與股票功能只需要 Python 3，不需要執行 `pip install`。
 
 ### 一般啟動
 
@@ -145,7 +146,7 @@ go mod download
 go run .
 ```
 
-只需啟動 Go Bot，不要另外執行 `stock.py`。收到股票指令時，Go 會自動啟動 Python 子程序。
+只需啟動 Go Bot。啟動時會執行一次 `weather.py` 同步城市清單；收到天氣或股票查詢時，再啟動對應的 Python 子程序。各次工作完成後，Python 都會立即結束，不需手動常駐執行。
 
 終端機出現下列訊息時代表 Bot 已啟動：
 
@@ -167,7 +168,7 @@ start.bat
 
 `discord-bot.service` 預設使用 `/root/discord-bot` 作為專案目錄。若實際部署位置不同，安裝前應調整 `WorkingDirectory` 與 `ExecStart`。
 
-`start.sh` 會將 Go 執行檔建置到 `DISCORD_BOT_STATE_DIR`，再以前景 `exec` 方式交由 systemd 管理。Python 不會隨 Service 啟動；只有股票事件發生時才會執行。
+`start.sh` 會將 Go 執行檔建置到 `DISCORD_BOT_STATE_DIR`，再以前景 `exec` 方式交由 systemd 管理。Service 啟動時會執行一次 Python 同步 CWA 城市，隨後結束；之後只有天氣或股票查詢事件會啟動對應的 Python 工作。
 
 常用指令：
 
@@ -197,6 +198,48 @@ sudo systemctl stop discord-bot.service
 | `天氣`                                                   | 查詢 `CWA_LOCATION` 未來 36 小時天氣     |
 | `下雨`                                                   | 查詢 `CWA_LOCATION` 未來 36 小時降雨機率 |
 
+### 天氣斜線指令與城市選擇
+
+輸入 `/天氣` 或 `/下雨`，選擇「城市名稱」欄位中的 CWA 縣市，再送出查詢。`/天氣 城市名稱:臺中市` 顯示完整預報卡片，`/下雨 城市名稱:高雄市` 顯示各時段降雨機率與口語建議。城市欄位可省略，省略時使用 `CWA_LOCATION`，該設定空白時使用臺北市。指定錯誤城市時會顯示提示，不會偷偷改查預設城市。
+
+城市選項來自 CWA F-C0032-001 的全部 `records.location`，由 Python 整理後傳回 Go，不在程式內寫死城市清單。目前資料集提供縣市層級的 36 小時預報；鄉鎮市區與國際城市不在此功能範圍。清單最多 25 個城市時使用 Discord Choices，超過時自動改用搜尋建議；完整城市集合仍會保留，輸入較完整名稱即可搜尋清單後方的城市。搜尋接受「台／臺」，不在每次按鍵時呼叫 Python 或 CWA。
+
+Bot 連線後先註冊 `/天氣`、`/下雨` 與「城市名稱」搜尋入口，再啟動一次 Python 同步 CWA 城市；成功後立即將兩個欄位更新成完整城市選項。同步失敗不會略過指令註冊，也不建立手動備援城市；後續天氣互動會在背景觸發同步重試，每次至少間隔 30 秒，同時只允許一個城市同步工作。恢復後搜尋入口會使用完整城市資料。城市清單保留在 Go 記憶體，預報本身不快取；正常運作時 CWA 城市清單變更可重啟 Bot 重新同步。
+
+```text
+Bot 連線 → 先註冊兩個指令入口 → weather.py locations → CWA 全部縣市 → JSON → Python 結束 → 更新城市選項
+/天氣 或 /下雨 → weather.go 先確認互動 → weather.py forecast 城市 模式
+    → CWA → 預報整理與卡片 JSON → Python 結束 → weather.go 更新原始回覆
+文字 天氣 或 下雨 → weather.go → 同一個 weather.py → Python 結束 → 回覆文字
+```
+
+Go 限制每次 Python 工作的總執行時間為 15 秒；Python 的 CWA HTTP 等待為 10 秒。Go 等待程序結束並回收資源，超過總期限會終止該次程序。每次查詢的城市與結果各自獨立，不建立常駐 Python、背景服務或資料庫。
+
+可選環境設定：
+
+```dotenv
+# 指定可用的 Python 執行檔完整路徑；與股票功能共用
+PYTHON_BIN=python3
+# 腳本不在工作目錄時，指定 weather.py 的完整路徑
+WEATHER_PYTHON_SCRIPT=weather.py
+# 測試時填入 Discord 伺服器 ID；空白時使用全域斜線指令
+DISCORD_COMMAND_GUILD_ID=
+```
+
+部署檢查：
+
+- 確認 Python 3.7 以上可以執行，且 `weather.py` 位於 Service 工作目錄或已設定 `WEATHER_PYTHON_SCRIPT`；不需要新增 pip 套件。
+- 設定 `CWA_API`，Bot 邀請授權包含 `bot` 與 `applications.commands`，頻道允許檢視頻道、傳送訊息與嵌入連結，使用者可使用應用程式指令。
+- 本功能沿用 Gateway 接收互動；Discord Developer Portal 的 Interactions Endpoint URL 應與此接收方式一致，不要同時指定另一個 HTTP 接收端點。
+- 建議先用 `DISCORD_COMMAND_GUILD_ID` 限定測試伺服器，確認兩個指令及城市卡片後再使用全域範圍。切換註冊範圍不會自動刪除舊範圍的指令，避免意外改動既有功能；如有重複須針對舊範圍處理。
+- 啟動日誌會分別顯示兩個指令的註冊範圍、指令 ID、城市選項數與 CWA 同步結果。Discord 註冊／回覆失敗時會記錄 HTTP 狀態及 Discord 錯誤代碼；收到操作時會記錄「已收到 /天氣 互動」或「已收到 /下雨 互動」，可藉此確認事件是否真的進入目前 Bot。修正授權或註冊設定後請重啟；城市資料暫缺可由後續互動觸發重試。
+- 斜線指令會先回覆 Deferred 確認，再執行 Python 查詢；查詢失敗也會更新原始訊息，避免停留在等待狀態。
+
+可在測試頻道依序確認 `/天氣 城市名稱:臺中市`、`/下雨 城市名稱:高雄市`、省略城市的 ENV 預設，以及原有文字 `天氣`、`下雨`。城市選項須涵蓋 CWA 回傳的全部縣市，查詢結果須顯示實際選定城市；多人同時查詢不得混用結果。
+
+Python stdout 協定：`locations` 操作回傳 `{"locations":[...]}`；`forecast 城市 weather|rain` 操作回傳 `{"message":"...","embed":{...}}`；失敗回傳 `{"error_code":"固定代碼"}` 並以非零退出碼結束。Go 只使用固定代碼對照中文訊息，不顯示原始 stderr、HTTP 本文或 API Key。
+
+參考：[CWA 資料集](https://opendata.cwa.gov.tw/dataset/all/F-C0032-001)、[Discord 指令選項](https://docs.discord.com/developers/interactions/application-commands)、[Discord 互動回覆](https://docs.discord.com/developers/interactions/receiving-and-responding)。
 ### 股票功能
 
 | 輸入訊息       | 行為                                               |
@@ -247,7 +290,7 @@ go vet ./...
 確認 Python 語法：
 
 ```bash
-python3 -m py_compile stock.py
+python3 -m py_compile stock.py weather.py
 ```
 
 建置 Go 執行檔：
